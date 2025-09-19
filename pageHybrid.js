@@ -77,9 +77,10 @@ ${text}
       console.log("☁️ Using Gemini cloud API...");
       const model = await getCloudModel();
       const rawOutput = await model.generateContent(promptText);
-      const output = rawOutput?.response?.text() || "⚠️ No response from Gemini";
+      const output =
+        rawOutput?.response?.text() || "⚠️ No response from Gemini";
       console.log("model output:", output);
-      return output; // ✅ return instead of posting
+      return { success: true, text: output };
     } catch (err) {
       let message = "⚠️ Error: " + err.message;
       if (err.message.includes("No Gemini API key")) {
@@ -87,7 +88,7 @@ ${text}
           "⚠️ No API key found. Please open the ToneShift popup and add your Gemini API key.";
       }
       console.error("Gemini error:", err);
-      return message; // ✅ return instead of posting
+      return { success: false, error: message };
     }
   }
 
@@ -97,19 +98,39 @@ ${text}
     if (event.data.type !== "TS_GEMINI_REQUEST") return;
 
     const { text, tone, complexity, brevity } = event.data;
-    let output = "";
 
-    // Step 1: try Chrome Nano
-    output = await tryChromeAI(text, tone, complexity, brevity);
+    try {
+      // Step 1: try Chrome Nano
+      let output = await tryChromeAI(text, tone, complexity, brevity);
 
-    // Step 2: fallback if needed
-    if (!output) {
-      const prompt = buildPrompt(text, tone, complexity, brevity);
-      output = await tryGeminiCloud(prompt);
+      // Step 2: fallback if needed
+      if (!output) {
+        const prompt = buildPrompt(text, tone, complexity, brevity);
+        const result = await tryGeminiCloud(prompt);
+
+        if (result.success) {
+          window.postMessage(
+            { type: "TS_GEMINI_RESPONSE", text: result.text },
+            "*"
+          );
+        } else {
+          window.postMessage(
+            { type: "TS_GEMINI_ERROR", error: result.error },
+            "*"
+          );
+        }
+        return;
+      }
+
+      // If Chrome Nano succeeded
+      window.postMessage({ type: "TS_GEMINI_RESPONSE", text: output }, "*");
+    } catch (err) {
+      console.error("Hybrid handler error:", err);
+      window.postMessage(
+        { type: "TS_GEMINI_ERROR", error: err.message || "Unknown error" },
+        "*"
+      );
     }
-
-    // ✅ Only one place we post back
-    window.postMessage({ type: "TS_GEMINI_RESPONSE", text: output }, "*");
   });
 
   console.log("✅ Hybrid AI handler ready (Chrome Nano + Gemini fallback)");

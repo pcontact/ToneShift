@@ -45,6 +45,20 @@
       cursor: pointer;
       z-index: 999999;
     }
+    .ts-loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #007bff;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: ts-spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes ts-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
   `;
   document.head.appendChild(style);
 
@@ -98,6 +112,11 @@
     <button id="ts-apply">Apply</button>
     <button id="ts-undo">Undo</button>
     <button id="ts-reset">Reset</button>
+
+    <div id="ts-spinner" style="display:none; margin-top:10px; text-align:center;">
+      <div class="ts-loader"></div>
+    </div>
+
     
 
     <div id="ts-output" style="margin-top:10px; font-size:14px;"></div>
@@ -224,10 +243,18 @@
   // Gemini responses
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
+
     if (event.data.type === "TS_GEMINI_RESPONSE") {
       lastAIResponse = event.data.text;
-      console.log("from content.js: ", event.data.text)
       document.getElementById("ts-output").textContent = lastAIResponse;
+      setLoading(false); // ✅ success, hide spinner
+    }
+
+    if (event.data.type === "TS_GEMINI_ERROR") {
+      document.getElementById("ts-output").textContent =
+        "⚠️ Error: " + (event.data.error || "Something went wrong");
+      lastAIResponse = "";
+      setLoading(false); // ✅ failure, hide spinner too
     }
   });
 
@@ -235,6 +262,9 @@
   document.getElementById("ts-preview").addEventListener("click", () => {
     const selection = window.getSelection().toString();
     if (!selection) return document.getElementById("ts-output").textContent = "No text selected.";
+
+    setLoading(true); // show spinner + disable buttons
+
 
     const settings = {
       tone: mapTone(document.getElementById("ts-tone").value),
@@ -350,6 +380,39 @@
       );
     }
   });
+
+  function setLoading(isLoading) {
+  const spinner = document.getElementById("ts-spinner");
+  const previewBtn = document.getElementById("ts-preview");
+  const applyBtn = document.getElementById("ts-apply");
+  const undoBtn = document.getElementById("ts-undo");
+  const resetBtn = document.getElementById("ts-reset");
+
+  if (isLoading) {
+    spinner.style.display = "block";
+    previewBtn.disabled = true;
+    applyBtn.disabled = true;
+    undoBtn.disabled = true;
+    resetBtn.disabled = true;
+
+    // ⏲️ Auto-fallback after 20s
+    if (setLoading._timeout) clearTimeout(setLoading._timeout);
+    setLoading._timeout = setTimeout(() => {
+      document.getElementById("ts-output").textContent =
+        "⚠️ Request timed out.";
+      setLoading(false);
+    }, 20000);
+  } else {
+    spinner.style.display = "none";
+    previewBtn.disabled = false;
+    applyBtn.disabled = false;
+    undoBtn.disabled = false;
+    resetBtn.disabled = false;
+
+    if (setLoading._timeout) clearTimeout(setLoading._timeout);
+  }
+}
+
 
 
 })();
