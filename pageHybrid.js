@@ -56,7 +56,7 @@ ${text}
     if (!(window.ai && window.ai.languageModel)) return null;
 
     try {
-      console.log("⚡ Using Chrome built-in AI (Nano)...");
+      console.log("Using Chrome built-in AI (Nano)...");
       const session = await window.ai.languageModel.create({
         temperature: 0.7,
         topK: 40,
@@ -79,7 +79,7 @@ ${text}
       const rawOutput = await model.generateContent(promptText);
       const output =
         rawOutput?.response?.text() || "⚠️ No response from Gemini";
-      console.log("model output:", output);
+      //console.log("model output:", output);
       return { success: true, text: output };
     } catch (err) {
       let message = "⚠️ Error: " + err.message;

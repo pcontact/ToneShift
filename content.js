@@ -1,27 +1,19 @@
 (function () {
-  if (document.getElementById("toneshift-sidebar")) return;
+  if (document.getElementById("toneshift-sidebar-host")) return;
 
   console.log("ToneShift sidebar injected!");
 
-  // Inject pageGeminiLoader.js
+  // --- Inject helper scripts into page context ---
   const loaderScript = document.createElement("script");
   loaderScript.type = "module";
   loaderScript.src = chrome.runtime.getURL("pageGeminiLoader.js");
   document.documentElement.appendChild(loaderScript);
 
-  /*
-  // Inject pageGemini.js
-  const geminiBridge = document.createElement("script");
-  geminiBridge.src = chrome.runtime.getURL("pageGemini.js");
-  document.documentElement.appendChild(geminiBridge);
-  */
- // Inject pageHybrid.js
   const hybridScript = document.createElement("script");
   hybridScript.src = chrome.runtime.getURL("pageHybrid.js");
   document.documentElement.appendChild(hybridScript);
 
-
-  // CSS for modified text and floating ts icon
+  // --- Floating icon CSS ---
   const style = document.createElement("style");
   style.textContent = `
     .ts-modified {
@@ -45,101 +37,133 @@
       cursor: pointer;
       z-index: 999999;
     }
-    .ts-loader {
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #007bff;
-      border-radius: 50%;
-      width: 24px;
-      height: 24px;
-      animation: ts-spin 1s linear infinite;
-      margin: 0 auto;
-    }
-    @keyframes ts-spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
   `;
   document.head.appendChild(style);
 
-  // Floating icon
+  // --- Floating icon ---
   const floatingIcon = document.createElement("div");
   floatingIcon.id = "ts-floating-icon";
   floatingIcon.textContent = "TS";
   floatingIcon.style.display = "none";
   document.body.appendChild(floatingIcon);
 
+  // --- Sidebar host + shadow ---
+  const host = document.createElement("div");
+  host.id = "toneshift-sidebar-host";
+  const shadow = host.attachShadow({ mode: "open" });
 
-  // Sidebar UI
-  const sidebar = document.createElement("div");
-  sidebar.id = "toneshift-sidebar";
-  sidebar.style.cssText = `
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 320px;
-    height: 100%;
-    background: white;
-    border-left: 2px solid #ddd;
-    z-index: 999999;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
-    font-family: sans-serif;
-    padding: 10px;
-    overflow-y: auto;
-  `;
-  sidebar.innerHTML = `
-    <h2>ToneShift</h2>
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; font-family: sans-serif; }
+      #toneshift-sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 320px;
+        height: 100%;
+        background: white;
+        border-left: 2px solid #ddd;
+        z-index: 999999;
+        box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+        font-family: sans-serif;
+        padding: 10px;
+        overflow-y: auto;
+      }
+      h2 { margin-top: 0; }
+      button {
+        margin: 4px 2px;
+        padding: 6px 10px;
+        border: none;
+        background: #007bff;
+        color: white;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover { background: #0056b3; }
+      input[type=range] { width: 100%; }
+      hr { margin: 10px 0; }
+      #ts-spinner .ts-loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #007bff;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        margin: auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
 
-    <button id="ts-hide-sidebar">Hide Sidebar</button><br>
-    <button id="ts-set-key">🔑 Set API Key</button><br>
-    <hr>
+    <div id="toneshift-sidebar">
+      <h2>ToneShift</h2>
 
-    <!-- Profile section -->
-    <label>Profiles:</label>
-    <select id="ts-profile-select"></select><br><br>
-    <button id="ts-save-profile">Save</button>
-    <button id="ts-edit-profile">Edit</button>
-    <button id="ts-delete-profile">Delete</button>
+      <button id="ts-hide-sidebar">Hide Sidebar</button><br>
+      <button id="ts-set-key">🔑 Set API Key</button><br>
+      <hr>
 
-    <hr>
-    
-    <!-- Sliders -->
-    <label>Tone</label><input id="ts-tone" type="range" min="0" max="10"><br>
-    <label>Complexity</label><input id="ts-complexity" type="range" min="0" max="10"><br>
-    <label>Brevity</label><input id="ts-brevity" type="range" min="0" max="10"><br>
+      <label>Profiles:</label>
+      <select id="ts-profile-select"></select><br><br>
+      <button id="ts-save-profile">Save</button>
+      <button id="ts-edit-profile">Edit</button>
+      <button id="ts-delete-profile">Delete</button>
 
-    <button id="ts-preview">Preview</button>
-    <button id="ts-apply">Apply</button>
-    <button id="ts-undo">Undo</button>
-    <button id="ts-reset">Reset</button>
+      <hr>
 
-    <div id="ts-spinner" style="display:none; margin-top:10px; text-align:center;">
-      <div class="ts-loader"></div>
+      <label>Tone</label><input id="ts-tone" type="range" min="0" max="10"><br>
+      <label>Complexity</label><input id="ts-complexity" type="range" min="0" max="10"><br>
+      <label>Brevity</label><input id="ts-brevity" type="range" min="0" max="10"><br>
+
+      <button id="ts-preview">Preview</button>
+      <button id="ts-apply">Apply</button>
+      <button id="ts-undo">Undo</button>
+      <button id="ts-reset">Reset</button>
+
+      <div id="ts-spinner" style="display:none; margin-top:10px; text-align:center;">
+        <div class="ts-loader"></div>
+      </div>
+
+      <div id="ts-output" style="margin-top:10px; font-size:14px;"></div>
     </div>
-
-    
-
-    <div id="ts-output" style="margin-top:10px; font-size:14px;"></div>
   `;
-  document.body.appendChild(sidebar);
+  document.body.appendChild(host);
 
-  // Track AI response and undo stack
+  // --- Grab elements from shadow ---
+  const qs = (id) => shadow.getElementById(id);
+  const sidebar = qs("toneshift-sidebar");
+  const hideBtn = qs("ts-hide-sidebar");
+  const setKeyBtn = qs("ts-set-key");
+  const profileSelect = qs("ts-profile-select");
+  const saveProfileBtn = qs("ts-save-profile");
+  const editProfileBtn = qs("ts-edit-profile");
+  const deleteProfileBtn = qs("ts-delete-profile");
+  const toneSlider = qs("ts-tone");
+  const complexitySlider = qs("ts-complexity");
+  const brevitySlider = qs("ts-brevity");
+  const previewBtn = qs("ts-preview");
+  const applyBtn = qs("ts-apply");
+  const undoBtn = qs("ts-undo");
+  const resetBtn = qs("ts-reset");
+  const spinner = qs("ts-spinner");
+  const outputBox = qs("ts-output");
+
+  // --- State ---
   let lastAIResponse = "";
   const undoStack = [];
 
-  // Built-in presets
-  //chrome.storage.local.set({profiles:{}})
+  // --- Profiles ---
   const builtInPresets = {
-    "Default" : { tone: 5, complexity: 5, brevity: 5 },
+    Default: { tone: 5, complexity: 5, brevity: 5 },
     "Kid Mode": { tone: 2, complexity: 2, brevity: 8 },
-    "Professional": { tone: 8, complexity: 9, brevity: 7 },
-    "Casual": { tone: 5, complexity: 5, brevity: 5 },
-    "Goggy": { tone: 6, complexity: 5, brevity: 6 },
-    "Lazy": { tone: 2, complexity: 2, brevity: 8 },
-    "No Brain" : { tone: 6, complexity: 2, brevity: 8 },
+    Professional: { tone: 8, complexity: 9, brevity: 7 },
+    Casual: { tone: 5, complexity: 5, brevity: 5 },
+    Goggy: { tone: 6, complexity: 5, brevity: 6 },
+    Lazy: { tone: 2, complexity: 2, brevity: 8 },
+    "No Brain": { tone: 6, complexity: 2, brevity: 8 },
   };
   let userProfiles = {};
-  const profileSelect = document.getElementById("ts-profile-select");
 
   async function loadProfiles() {
     const data = await chrome.storage.local.get("profiles");
@@ -156,12 +180,11 @@
   loadProfiles();
 
   function applyProfile(profile) {
-    document.getElementById("ts-tone").value = profile.tone;
-    document.getElementById("ts-complexity").value = profile.complexity;
-    document.getElementById("ts-brevity").value = profile.brevity;
-    console.log(profile)
+    toneSlider.value = profile.tone;
+    complexitySlider.value = profile.complexity;
+    brevitySlider.value = profile.brevity;
   }
-  applyProfile(builtInPresets.Default)
+  applyProfile(builtInPresets.Default);
 
   profileSelect.addEventListener("change", () => {
     const name = profileSelect.value;
@@ -169,131 +192,108 @@
     if (profile) applyProfile(profile);
   });
 
-  async function saveProfile(name) {
+  // --- Save / Edit / Delete profiles ---
+  saveProfileBtn.addEventListener("click", async () => {
+    const name = prompt("Enter profile name:");
     if (!name) return;
-    const tone = Number(document.getElementById("ts-tone").value);
-    const complexity = Number(document.getElementById("ts-complexity").value);
-    const brevity = Number(document.getElementById("ts-brevity").value);
-
-    let finalName = name;
-    let idx = 1;
-    while (userProfiles[finalName] || builtInPresets[finalName]) {
-      finalName = `${name}_${idx}`;
-      idx++;
-    }
-
-    userProfiles[finalName] = { tone, complexity, brevity };
-    await chrome.storage.local.set({ profiles: userProfiles });
-    loadProfiles();
-    profileSelect.value = finalName;
-    alert(`Profile saved as "${finalName}"`);
-
-    // apply the profile
-    applyProfile(userProfiles[finalName])
-  }
-  async function editProfile() {
-    const name = profileSelect.value;
-    if (!name) return alert("Select a profile to edit.");
-    const tone = Number(document.getElementById("ts-tone").value);
-    const complexity = Number(document.getElementById("ts-complexity").value);
-    const brevity = Number(document.getElementById("ts-brevity").value);
+    const tone = Number(toneSlider.value);
+    const complexity = Number(complexitySlider.value);
+    const brevity = Number(brevitySlider.value);
     userProfiles[name] = { tone, complexity, brevity };
     await chrome.storage.local.set({ profiles: userProfiles });
     loadProfiles();
     profileSelect.value = name;
+    alert(`Profile saved as "${name}"`);
+  });
+
+  editProfileBtn.addEventListener("click", async () => {
+    const name = profileSelect.value;
+    if (!name) return alert("Select a profile to edit.");
+    userProfiles[name] = {
+      tone: Number(toneSlider.value),
+      complexity: Number(complexitySlider.value),
+      brevity: Number(brevitySlider.value),
+    };
+    await chrome.storage.local.set({ profiles: userProfiles });
+    loadProfiles();
+    profileSelect.value = name;
     alert(`Profile "${name}" updated`);
-  }
-  async function deleteProfile() {
+  });
+
+  deleteProfileBtn.addEventListener("click", async () => {
     const name = profileSelect.value;
     if (!name) return alert("Select a profile to delete.");
-    if (!userProfiles[name]) return alert("Cannot delete built-in profile directly.");
+    if (!userProfiles[name]) return alert("Cannot delete built-in profile.");
     delete userProfiles[name];
     await chrome.storage.local.set({ profiles: userProfiles });
     loadProfiles();
-  }
-  document.getElementById("ts-save-profile").addEventListener("click", async () => {
-    const name = prompt("Enter profile name:");
-    if (name) saveProfile(name.trim());
   });
-  document.getElementById("ts-edit-profile").addEventListener("click", editProfile);
-  document.getElementById("ts-delete-profile").addEventListener("click", deleteProfile);
 
-    // map settings to text meaning
-  function mapTone(value) {
-    value = Number(value); 
-    if (value <= 2) return "neutral"; 
-    if (value <= 4) return "slightly emotional"; 
-    if (value <= 6) return "moderately emotional"; 
-    if (value <= 8) return "very emotional"; return "extremely emotional"; 
+  // --- Mapping sliders ---
+  function mapTone(v) {
+    v = Number(v);
+    if (v <= 2) return "neutral";
+    if (v <= 4) return "slightly emotional";
+    if (v <= 6) return "moderately emotional";
+    if (v <= 8) return "very emotional";
+    return "extremely emotional";
   }
-  function mapComplexity(value) {
-    value = Number(value); 
-    if (value <= 2) return "very simple"; 
-    if (value <= 4) return "simple"; 
-    if (value <= 6) return "moderately complex"; 
-    if (value <= 8) return "complex"; return "very complex";
+  function mapComplexity(v) {
+    v = Number(v);
+    if (v <= 2) return "very simple";
+    if (v <= 4) return "simple";
+    if (v <= 6) return "moderately complex";
+    if (v <= 8) return "complex";
+    return "very complex";
   }
-  function mapBrevity(value) {
-    value = Number(value);
-    if (value <= 2) return "very verbose";
-    if (value <= 4) return "verbose";
-    if (value <= 6) return "moderately concise";
-    if (value <= 8) return "concise"; return "very concise"; }
+  function mapBrevity(v) {
+    v = Number(v);
+    if (v <= 2) return "very verbose";
+    if (v <= 4) return "verbose";
+    if (v <= 6) return "moderately concise";
+    if (v <= 8) return "concise";
+    return "very concise";
+  }
 
-  // Gemini responses
+  // --- Gemini responses ---
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
 
     if (event.data.type === "TS_GEMINI_RESPONSE") {
       lastAIResponse = event.data.text;
-      document.getElementById("ts-output").textContent = lastAIResponse;
-      setLoading(false); // ✅ success, hide spinner
+      outputBox.textContent = lastAIResponse;
+      setLoading(false);
     }
 
     if (event.data.type === "TS_GEMINI_ERROR") {
-      document.getElementById("ts-output").textContent =
+      outputBox.textContent =
         "⚠️ Error: " + (event.data.error || "Something went wrong");
       lastAIResponse = "";
-      setLoading(false); // ✅ failure, hide spinner too
+      setLoading(false);
     }
   });
 
-  // Preview
-  document.getElementById("ts-preview").addEventListener("click", () => {
+  // --- Preview ---
+  previewBtn.addEventListener("click", () => {
     const selection = window.getSelection().toString();
-    if (!selection) return document.getElementById("ts-output").textContent = "No text selected.";
+    if (!selection) return (outputBox.textContent = "No text selected.");
 
-    setLoading(true); // show spinner + disable buttons
-
+    setLoading(true);
 
     const settings = {
-      tone: mapTone(document.getElementById("ts-tone").value),
-      complexity: mapComplexity(document.getElementById("ts-complexity").value),
-      brevity: mapBrevity(document.getElementById("ts-brevity").value)
+      tone: mapTone(toneSlider.value),
+      complexity: mapComplexity(complexitySlider.value),
+      brevity: mapBrevity(brevitySlider.value),
     };
 
-    window.postMessage({ type: "TS_GEMINI_REQUEST", text: selection, ...settings }, "*");
+    window.postMessage(
+      { type: "TS_GEMINI_REQUEST", text: selection, ...settings },
+      "*"
+    );
   });
 
-  function replaceTextNodes(rootNode, replacementText) {
-    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-        if (["SCRIPT","STYLE"].includes(node.parentNode.tagName)) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    const replaced = [];
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      replaced.push({ node, originalText: node.nodeValue });
-      node.nodeValue = replacementText;
-    }
-    return replaced;
-  }
-
-  // Apply
-  document.getElementById("ts-apply").addEventListener("click", () => {
+  // --- Apply ---
+  applyBtn.addEventListener("click", () => {
     if (!lastAIResponse) return alert("No AI response to apply.");
     const selection = window.getSelection();
     if (selection.rangeCount > 0 && selection.toString().trim() !== "") {
@@ -305,73 +305,56 @@
       span.classList.add("ts-modified");
       range.insertNode(span);
       selection.removeAllRanges();
-    } else {
-      const replacedNodes = replaceTextNodes(document.body, lastAIResponse);
-      replacedNodes.forEach(n => {
-        const span = document.createElement("span");
-        span.textContent = n.node.nodeValue;
-        span.classList.add("ts-modified");
-        n.node.parentNode.replaceChild(span, n.node);
-        undoStack.push({ node: span, originalText: n.originalText });
-      });
     }
   });
 
-  // Undo
-  document.getElementById("ts-undo").addEventListener("click", () => {
+  // --- Undo ---
+  undoBtn.addEventListener("click", () => {
     while (undoStack.length > 0) {
       const item = undoStack.pop();
-      if (item.range) item.range.deleteContents(), item.range.insertNode(document.createTextNode(item.originalText));
-      else if (item.node) item.node.replaceWith(document.createTextNode(item.originalText));
+      if (item.range)
+        item.range.deleteContents(),
+          item.range.insertNode(document.createTextNode(item.originalText));
     }
   });
 
-  // Reset
-  document.getElementById("ts-reset").addEventListener("click", () => {
-    document.getElementById("ts-output").textContent = "";
+  // --- Reset ---
+  resetBtn.addEventListener("click", () => {
+    outputBox.textContent = "";
     lastAIResponse = "";
   });
 
-    // Hide Sidebar button
-  const hideBtn = document.getElementById("ts-hide-sidebar");
+  // --- Hide / Show sidebar ---
   hideBtn.addEventListener("click", () => {
     sidebar.style.display = "none";
     floatingIcon.style.display = "flex";
-    hideBtn.textContent = "Show Sidebar";  // ✅ not "Hide"
     chrome.storage.local.set({ sidebarVisible: false });
   });
 
-  // Floating icon click
   floatingIcon.addEventListener("click", () => {
     sidebar.style.display = "block";
     floatingIcon.style.display = "none";
-    hideBtn.textContent = "Hide Sidebar";  // ✅ keep in sync
     chrome.storage.local.set({ sidebarVisible: true });
   });
 
-  // Load sidebar visibility
   chrome.storage.local.get("sidebarVisible").then((data) => {
     if (data.sidebarVisible === false) {
       sidebar.style.display = "none";
       floatingIcon.style.display = "flex";
-      hideBtn.textContent = "Show Sidebar";
     } else {
       sidebar.style.display = "block";
       floatingIcon.style.display = "none";
-      hideBtn.textContent = "Hide Sidebar";
     }
   });
 
-  // set api key click
-  document.getElementById("ts-set-key").addEventListener("click", () => {
+  // --- Open popup for API key ---
+  setKeyBtn.addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "openPopup" });
   });
 
-
-  // Bridge API key requests from page script
+  // --- API key bridge ---
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
-
     if (event.data.type === "TS_GET_API_KEY") {
       const data = await chrome.storage.local.get("apiKey");
       window.postMessage(
@@ -381,38 +364,42 @@
     }
   });
 
+  // --- Spinner / disable buttons ---
   function setLoading(isLoading) {
-  const spinner = document.getElementById("ts-spinner");
-  const previewBtn = document.getElementById("ts-preview");
-  const applyBtn = document.getElementById("ts-apply");
-  const undoBtn = document.getElementById("ts-undo");
-  const resetBtn = document.getElementById("ts-reset");
+    if (isLoading) {
+      spinner.style.display = "block";
+      previewBtn.disabled = true;
+      applyBtn.disabled = true;
+      undoBtn.disabled = true;
+      resetBtn.disabled = true;
 
-  if (isLoading) {
-    spinner.style.display = "block";
-    previewBtn.disabled = true;
-    applyBtn.disabled = true;
-    undoBtn.disabled = true;
-    resetBtn.disabled = true;
-
-    // ⏲️ Auto-fallback after 20s
-    if (setLoading._timeout) clearTimeout(setLoading._timeout);
-    setLoading._timeout = setTimeout(() => {
-      document.getElementById("ts-output").textContent =
-        "⚠️ Request timed out.";
-      setLoading(false);
-    }, 20000);
-  } else {
-    spinner.style.display = "none";
-    previewBtn.disabled = false;
-    applyBtn.disabled = false;
-    undoBtn.disabled = false;
-    resetBtn.disabled = false;
-
-    if (setLoading._timeout) clearTimeout(setLoading._timeout);
+      if (setLoading._timeout) clearTimeout(setLoading._timeout);
+      setLoading._timeout = setTimeout(() => {
+        outputBox.textContent = "⚠️ Request timed out.";
+        setLoading(false);
+      }, 20000);
+    } else {
+      spinner.style.display = "none";
+      previewBtn.disabled = false;
+      applyBtn.disabled = false;
+      undoBtn.disabled = false;
+      resetBtn.disabled = false;
+      if (setLoading._timeout) clearTimeout(setLoading._timeout);
+    }
   }
-}
 
-
+  // Listen for popup commands
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.action === "toggleSidebar") {
+      if (msg.visible) {
+        sidebar.style.display = "block";
+        floatingIcon.style.display = "none";
+      } else {
+        sidebar.style.display = "none";
+        floatingIcon.style.display = "flex";
+      }
+      chrome.storage.local.set({ sidebarVisible: msg.visible });
+    }
+  });
 
 })();

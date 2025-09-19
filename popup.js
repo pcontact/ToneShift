@@ -1,3 +1,4 @@
+// popup.js (replace your file with this)
 document.addEventListener("DOMContentLoaded", async () => {
   const openBtn = document.getElementById("open");
   const saveBtn = document.getElementById("saveKey");
@@ -34,10 +35,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   toggleKeyBtn.addEventListener("click", () => {
     if (apiKeyInput.type === "password") {
       apiKeyInput.type = "text";
-      toggleKeyBtn.textContent = "hide"; // change icon when visible
+      toggleKeyBtn.textContent = "hide";
     } else {
       apiKeyInput.type = "password";
-      toggleKeyBtn.textContent = "show"; // back to hidden
+      toggleKeyBtn.textContent = "show";
     }
   });
 
@@ -45,35 +46,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   openBtn.addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        const sidebar = document.getElementById("toneshift-sidebar");
+    const nextState = openBtn.textContent === "Show Sidebar"; // true = want to show
 
-        if (!sidebar) {
-          // Inject content.js if not already injected
-          const script = document.createElement("script");
-          script.src = chrome.runtime.getURL("content.js");
-          script.type = "module";
-          document.body.appendChild(script);
-          chrome.storage.local.set({ sidebarVisible: true });
-        } else {
-          const hideBtn = document.getElementById("ts-hide-sidebar");
-          if (sidebar.style.display === "none") {
-            sidebar.style.display = "block";
-            if (hideBtn) hideBtn.textContent = "Hide Sidebar";
-            chrome.storage.local.set({ sidebarVisible: true });
-          } else {
-            sidebar.style.display = "none";
-            if (hideBtn) hideBtn.textContent = "Show Sidebar";
-            chrome.storage.local.set({ sidebarVisible: false });
-          }
-        }
-      }
-    });
+    chrome.tabs.sendMessage(tab.id, { action: "toggleSidebar", visible: nextState });
 
-    // Update popup button text immediately
-    openBtn.textContent =
-      openBtn.textContent === "Show Sidebar" ? "Hide Sidebar" : "Show Sidebar";
+    await chrome.storage.local.set({ sidebarVisible: nextState });
+    openBtn.textContent = nextState ? "Hide Sidebar" : "Show Sidebar";
   });
+
 });
