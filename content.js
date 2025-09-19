@@ -47,7 +47,7 @@
   floatingIcon.style.display = "none";
   document.body.appendChild(floatingIcon);
 
-  // --- Sidebar host + shadow ---
+  // --- Sidebar host + shadow DOM ---
   const host = document.createElement("div");
   host.id = "toneshift-sidebar-host";
   const shadow = host.attachShadow({ mode: "open" });
@@ -95,6 +95,12 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
+      .ts-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+      }
     </style>
 
     <div id="toneshift-sidebar">
@@ -121,6 +127,16 @@
       <button id="ts-undo">Undo</button>
       <button id="ts-reset">Reset</button>
 
+      <hr>
+
+      <button id="ts-rewrite-page" title="Rewrite the entire page using the selected profile">⚡ Rewrite Page</button>
+      <button id="ts-undo-all" title="Undo all changes and restore the original page">⏪ Undo All</button>
+
+      <div class="ts-toggle" title="Automatically rewrite every page you visit using the selected profile">
+        <input type="checkbox" id="ts-auto-rewrite" />
+        <label for="ts-auto-rewrite">Auto-Rewrite Pages</label>
+      </div>
+
       <div id="ts-spinner" style="display:none; margin-top:10px; text-align:center;">
         <div class="ts-loader"></div>
       </div>
@@ -128,6 +144,7 @@
       <div id="ts-output" style="margin-top:10px; font-size:14px;"></div>
     </div>
   `;
+
   document.body.appendChild(host);
 
   // --- Grab elements from shadow ---
@@ -148,6 +165,9 @@
   const resetBtn = qs("ts-reset");
   const spinner = qs("ts-spinner");
   const outputBox = qs("ts-output");
+  const rewritePageBtn = qs("ts-rewrite-page");
+  const undoAllBtn = qs("ts-undo-all");
+  const autoRewriteToggle = qs("ts-auto-rewrite");
 
   // --- State ---
   let lastAIResponse = "";
@@ -229,7 +249,7 @@
     loadProfiles();
   });
 
-  // --- Mapping sliders ---
+  // --- Slider mapping functions ---
   function mapTone(v) {
     v = Number(v);
     if (v <= 2) return "neutral";
@@ -255,7 +275,7 @@
     return "very concise";
   }
 
-  // --- Gemini responses ---
+  // --- Gemini response listener ---
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
 
@@ -273,7 +293,7 @@
     }
   });
 
-  // --- Preview ---
+  // --- Preview button ---
   previewBtn.addEventListener("click", () => {
     const selection = window.getSelection().toString();
     if (!selection) return (outputBox.textContent = "No text selected.");
@@ -292,39 +312,47 @@
     );
   });
 
-  // --- Apply ---
-  applyBtn.addEventListener("click", () => {
-    if (!lastAIResponse) return alert("No AI response to apply.");
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0 && selection.toString().trim() !== "") {
-      const range = selection.getRangeAt(0);
-      undoStack.push({ range: range.cloneRange(), originalText: range.toString() });
-      range.deleteContents();
-      const span = document.createElement("span");
-      span.textContent = lastAIResponse;
-      span.classList.add("ts-modified");
-      range.insertNode(span);
-      selection.removeAllRanges();
-    }
-  });
+  // --- Apply selection rewrite (preserve styling) ---
+applyBtn.addEventListener("click", () => {
+  if (!lastAIResponse) return alert("No AI response to apply.");
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0 && selection.toString().trim() !== "") {
+    const range = selection.getRangeAt(0);
 
-  // --- Undo ---
-  undoBtn.addEventListener("click", () => {
-    while (undoStack.length > 0) {
-      const item = undoStack.pop();
-      if (item.range)
-        item.range.deleteContents(),
-          item.range.insertNode(document.createTextNode(item.originalText));
-    }
-  });
+    // Clone original DOM nodes for undo
+    const originalNodes = range.cloneContents();
+    undoStack.push({ range: range.cloneRange(), originalNodes });
 
-  // --- Reset ---
+    // Replace selection with AI content inside a span
+    range.deleteContents();
+    const aiSpan = document.createElement("span");
+    aiSpan.classList.add("ts-modified");
+    aiSpan.textContent = lastAIResponse;
+    range.insertNode(aiSpan);
+
+    // Clear selection
+    selection.removeAllRanges();
+  }
+});
+
+// --- Undo selection (restore original DOM nodes) ---
+undoBtn.addEventListener("click", () => {
+  while (undoStack.length > 0) {
+    const item = undoStack.pop();
+    if (item.range && item.originalNodes) {
+      item.range.deleteContents();
+      item.range.insertNode(item.originalNodes);
+    }
+  }
+});
+
+  // --- Reset output ---
   resetBtn.addEventListener("click", () => {
     outputBox.textContent = "";
     lastAIResponse = "";
   });
 
-  // --- Hide / Show sidebar ---
+  // --- Sidebar visibility ---
   hideBtn.addEventListener("click", () => {
     sidebar.style.display = "none";
     floatingIcon.style.display = "flex";
@@ -388,8 +416,8 @@
     }
   }
 
-  // Listen for popup commands
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // --- Listen for popup commands ---
+  chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "toggleSidebar") {
       if (msg.visible) {
         sidebar.style.display = "block";
@@ -402,4 +430,93 @@
     }
   });
 
+  // --- Rewrite page ---
+  rewritePageBtn.addEventListener("click", async () => {
+    console.log("🔄 Rewrite entire page requested");
+    await rewritePageWithProfile();
+  });
+
+  // --- Undo All ---
+  undoAllBtn.addEventListener("click", async () => {
+    const proceed = confirm(
+      "Undo All rewrites will reload the page. Any unsaved changes on this page will be lost. Continue?"
+    );
+    if (!proceed) return;
+
+    console.log("↩️ Undo all: reloading page...");
+    const data = await chrome.storage.local.get(["sidebarVisible"]);
+    const wasSidebarVisible = data.sidebarVisible;
+
+    await chrome.storage.local.set({
+      skipAutoRewrite: true,
+      restoreSidebar: wasSidebarVisible,
+    });
+
+    location.reload();
+  });
+
+  // --- Auto-Rewrite toggle ---
+  chrome.storage.local.get(["autoRewrite"], (data) => {
+    if (data.autoRewrite) autoRewriteToggle.checked = true;
+  });
+
+  autoRewriteToggle.addEventListener("change", async (e) => {
+    const enabled = e.target.checked;
+    await chrome.storage.local.set({ autoRewrite: enabled });
+    console.log("⚙️ Auto-Rewrite Pages set to:", enabled);
+
+    if (enabled) await rewritePageWithProfile();
+  });
+
+  // --- Sync autoRewrite toggle across contexts ---
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.autoRewrite && autoRewriteToggle) {
+      autoRewriteToggle.checked = changes.autoRewrite.newValue;
+    }
+  });
+
+  // --- Handle auto-rewrite on page load and restore sidebar ---
+  chrome.storage.local.get(
+    ["autoRewrite", "skipAutoRewrite", "restoreSidebar"],
+    async (data) => {
+      if (data.skipAutoRewrite) {
+        await chrome.storage.local.set({ skipAutoRewrite: false });
+        console.log("⚠️ Skipping auto-rewrite due to Undo All");
+      } else if (data.autoRewrite) {
+        console.log("⚡ Auto-Rewrite Pages active: rewriting page...");
+        await rewritePageWithProfile();
+      }
+
+      if (data.restoreSidebar) {
+        chrome.runtime.sendMessage({
+          action: "toggleSidebar",
+          visible: data.restoreSidebar,
+        });
+        await chrome.storage.local.set({ restoreSidebar: false });
+      }
+    }
+  );
+
+  // --- Page-wide Rewrite scaffolding ---
+  async function rewritePageWithProfile() {
+    console.log("⚙️ [rewritePageWithProfile] Starting rewrite...");
+
+    const profile = {
+      tone: mapTone(toneSlider.value),
+      complexity: mapComplexity(complexitySlider.value),
+      brevity: mapBrevity(brevitySlider.value),
+    };
+
+    const pageText = document.body.innerText;
+
+    if (!pageText || pageText.trim().length < 20) {
+      console.warn("⚠️ Not enough text content to rewrite.");
+      return;
+    }
+
+    // TODO: Send pageText + profile to Gemini via window.postMessage
+    // window.postMessage({ type: "TS_GEMINI_REQUEST", text: pageText, ...profile }, "*");
+
+    console.log("Would rewrite page with profile:", profile);
+  }
 })();
