@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ToneShift</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        width: 250px;
+        padding: 10px;
+      }
+      .input-group {
+        display: flex;
+        align-items: center;
+      }
+      #apiKeyInput {
+        flex: 1;
+        margin-right: 5px;
+      }
+      #toggleKey {
+        cursor: pointer;
+        background: none;
+        border: none;
+        font-size: 14px;
+      }
+      #status {
+        font-size: 12px;
+        color: green;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>ToneShift</h3>
+    <p>Extension active. Select text on any page and use the sidebar.</p>
+
+    <button id="open">Open Sidebar</button>
+
+    <hr>
+    <h4>API Key</h4>
+    <div class="input-group">
+      <input type="password" id="apiKeyInput" placeholder="Enter Gemini API Key" />
+      <button id="toggleKey">show</button>
+    </div>
+    <button id="saveKey">Save Key</button>
+    <p id="status"></p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
