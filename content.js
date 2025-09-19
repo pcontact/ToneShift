@@ -101,7 +101,7 @@
       <h2>ToneShift</h2>
 
       <button id="ts-hide-sidebar">Hide Sidebar</button><br>
-      <button id="ts-set-key">🔑 Set API Key</button><br>
+      <button id="ts-set-key">🔑 Set Gemini API Key</button><br>
       <hr>
 
       <label>Profiles:</label>
