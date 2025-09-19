@@ -226,6 +226,7 @@
     if (event.source !== window) return;
     if (event.data.type === "TS_GEMINI_RESPONSE") {
       lastAIResponse = event.data.text;
+      console.log("from content.js: ", event.data.text)
       document.getElementById("ts-output").textContent = lastAIResponse;
     }
   });
