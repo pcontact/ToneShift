@@ -61,7 +61,7 @@ ${text}
 
 
   // --- Chrome Nano ---
-  async function tryChromeAI(text, tone, complexity, brevity) {
+  async function tryChromeAI(promptText) {
     if (!(window.ai && window.ai.languageModel)) return null;
 
     try {
@@ -71,7 +71,7 @@ ${text}
         topK: 40,
       });
       const response = await session.prompt(
-        buildPrompt(text, tone, complexity, brevity)
+        promptText
       );
       return response;
     } catch (err) {
@@ -106,17 +106,21 @@ ${text}
     if (event.source !== window) return;
     if (event.data.type !== "TS_GEMINI_REQUEST") return;
 
-    const { text, tone, complexity, brevity } = event.data;
+    const { textWithPlaceholders, textWithoutPlaceholders, tone, complexity, brevity } = event.data;
+    const profile = {tone, complexity, brevity}
+
+    const freeWritePrompt = buildPromptFreeRewrite(textWithoutPlaceholders, profile)
+
     //console.log("received: ", event.data.type)
 
     try {
       // Step 1: try Chrome Nano
-      let output = await tryChromeAI(text, tone, complexity, brevity);
+      let output = await tryChromeAI(freeWritePrompt);
 
       // Step 2: fallback if needed
       if (!output) {
-        const prompt = buildPrompt(text, tone, complexity, brevity);
-        const result = await tryGeminiCloud(prompt);
+        const fluentRewrite = await tryGeminiCloud(freeWritePrompt);
+        const result = await tryGeminiCloud(buildPromptAlign(fluentRewrite, textWithPlaceholders))
 
         if (result.success) {
           window.postMessage(
@@ -133,7 +137,9 @@ ${text}
       }
 
       // If Chrome Nano succeeded
-      window.postMessage({ type: "TS_GEMINI_RESPONSE", text: output }, "*");
+      const result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders))
+
+      window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
     } catch (err) {
       console.error("Hybrid handler error:", err);
       window.postMessage(
@@ -142,6 +148,50 @@ ${text}
       );
     }
   });
+
+
+// === Hybrid Two-Pass Rewrite Pipeline ===
+// Prompt for free rewrite (fluency, tone/complexity/brevity)
+function buildPromptFreeRewrite(textWithoutPlaceholders, { tone, complexity, brevity }) {
+  return `
+You are an AI text editor. Rewrite the text according to these settings:
+
+- Tone: ${tone}
+- Complexity: ${complexity}
+- Brevity: ${brevity}
+
+Rules:
+1. Match tone precisely.
+2. Adjust vocabulary and sentence structure to fit complexity.
+3. Match verbosity or conciseness to brevity.
+4. Keep meaning accurate, no new facts.
+5. Produce fluent, natural, polished text.
+
+Text:
+${textWithoutPlaceholders}
+`;
+}
+
+// Prompt for alignment (merge placeholders back in)
+function buildPromptAlign(fluentRewrite, textWithPlaceholders) {
+  return `
+You are an AI alignment editor. 
+We already have a fluent rewrite (correct tone/complexity/brevity) and the original text with placeholders.
+
+Task:
+- Use the fluent rewrite as the base wording.
+- Reinsert all placeholders (_TS_TAG_X_START ... _END) from the tagged original.
+- Do not delete, duplicate, or invent placeholders.
+- You may move placeholders slightly for natural flow, but their semantic role must stay the same.
+- Do not change the tone, complexity, or brevity from the fluent rewrite.
+
+Fluent Rewrite:
+${fluentRewrite}
+
+Original with Placeholders:
+${textWithPlaceholders}
+`;
+}
 
   console.log("✅ Hybrid AI handler ready (Chrome Nano + Gemini fallback)");
 })();

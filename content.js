@@ -318,7 +318,7 @@
     return "";
   }
 
- // --- Preview selection rewrite ---
+// --- Preview selection rewrite ---
 previewBtn.addEventListener("click", () => {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) {
@@ -341,7 +341,7 @@ previewBtn.addEventListener("click", () => {
   // Build text with placeholders
   const textWithPlaceholders = replaceNodes(selection.getRangeAt(0).cloneContents());
   //console.log("Text with placeholders:", textWithPlaceholders);
-  //console.log("Placeholder map:", placeholderMap);
+  // console.log("Placeholder map:", placeholderMap);
 
   const settings = {
     tone: mapTone(toneSlider.value),
@@ -349,16 +349,18 @@ previewBtn.addEventListener("click", () => {
     brevity: mapBrevity(brevitySlider.value),
   };
 
-  // Send to AI
+  // Send to AI (both versions)
   window.postMessage(
     {
       type: "TS_GEMINI_REQUEST",
-      text: textWithPlaceholders.trim(),
+      textWithPlaceholders: textWithPlaceholders.trim(),
+      textWithoutPlaceholders: selectionText, // <-- raw version
       ...settings,
     },
     "*"
   );
 });
+
 
   
   // --- Apply selection rewrite (preserve styling with structured placeholders) ---
