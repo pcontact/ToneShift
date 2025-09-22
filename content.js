@@ -172,6 +172,8 @@
   // --- State ---
   let lastAIResponse = "";
   const undoStack = [];
+  let placeholderMap = {}; // Make it accessible across listeners
+
 
   // --- Profiles ---
   const builtInPresets = {
@@ -293,58 +295,230 @@
     }
   });
 
-  // --- Preview button ---
-  previewBtn.addEventListener("click", () => {
-    const selection = window.getSelection().toString();
-    if (!selection) return (outputBox.textContent = "No text selected.");
+  // --- Recursive function to replace element nodes with placeholders while keeping text ---
+ let placeholderIndex = 0;
+  function replaceNodes(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const innerText = Array.from(node.childNodes).map(replaceNodes).join("");
 
-    setLoading(true);
+      const key = `_TS_TAG_${placeholderIndex}`;
+      placeholderMap[key] = node.cloneNode(true);
 
-    const settings = {
-      tone: mapTone(toneSlider.value),
-      complexity: mapComplexity(complexitySlider.value),
-      brevity: mapBrevity(brevitySlider.value),
-    };
+      const marker = `${key}_START[${innerText}]${key}_END`;
+      placeholderIndex++;
 
-    window.postMessage(
-      { type: "TS_GEMINI_REQUEST", text: selection, ...settings },
-      "*"
-    );
-  });
+      return marker;
+    }
+    if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      return Array.from(node.childNodes).map(replaceNodes).join(" ");
+    }
+    return "";
+  }
 
-  // --- Apply selection rewrite (preserve styling) ---
-applyBtn.addEventListener("click", () => {
-  if (!lastAIResponse) return alert("No AI response to apply.");
+ // --- Preview selection rewrite ---
+previewBtn.addEventListener("click", () => {
   const selection = window.getSelection();
-  if (selection.rangeCount > 0 && selection.toString().trim() !== "") {
+  if (!selection || selection.rangeCount === 0) {
+    outputBox.textContent = "No text selected.";
+    return;
+  }
+
+  const selectionText = selection.toString().trim();
+  if (!selectionText) {
+    outputBox.textContent = "No text selected.";
+    return;
+  }
+
+  setLoading(true);
+
+  // Reset globals
+  placeholderIndex = 0;
+  placeholderMap = {};
+
+  // Build text with placeholders
+  const textWithPlaceholders = replaceNodes(selection.getRangeAt(0).cloneContents());
+  //console.log("Text with placeholders:", textWithPlaceholders);
+  //console.log("Placeholder map:", placeholderMap);
+
+  const settings = {
+    tone: mapTone(toneSlider.value),
+    complexity: mapComplexity(complexitySlider.value),
+    brevity: mapBrevity(brevitySlider.value),
+  };
+
+  // Send to AI
+  window.postMessage(
+    {
+      type: "TS_GEMINI_REQUEST",
+      text: textWithPlaceholders.trim(),
+      ...settings,
+    },
+    "*"
+  );
+});
+
+  
+  // --- Apply selection rewrite (preserve styling with structured placeholders) ---
+  applyBtn.addEventListener("click", () => {
+    if (!lastAIResponse) {
+      alert("No AI response to apply.");
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.toString().trim() === "") return;
+
     const range = selection.getRangeAt(0);
 
-    // Clone original DOM nodes for undo
+    // Save original DOM for undo
     const originalNodes = range.cloneContents();
     undoStack.push({ range: range.cloneRange(), originalNodes });
 
-    // Replace selection with AI content inside a span
-    range.deleteContents();
-    const aiSpan = document.createElement("span");
-    aiSpan.classList.add("ts-modified");
-    aiSpan.textContent = lastAIResponse;
-    range.insertNode(aiSpan);
+    let reconstructedHTML = lastAIResponse;
 
-    // Clear selection
+    const tagRegex = /_TS_TAG_(\d+)_START\[(.*?)\]_TS_TAG_\1_END/g;
+
+    // 🔁 Keep replacing until no more placeholders
+    let iterations = 0;
+    while (tagRegex.test(reconstructedHTML) && iterations < 50) {
+      reconstructedHTML = reconstructedHTML.replace(tagRegex, (match, index, innerText) => {
+        const key = `_TS_TAG_${index}`;
+        const node = placeholderMap[key]?.cloneNode(true);
+
+        if (node) {
+          node.textContent = innerText;
+          return node.outerHTML;
+        }
+        return innerText; // fallback
+      });
+      iterations++;
+    }
+
+    // 🧹 Final safeguard: strip any stray placeholders
+    reconstructedHTML = reconstructedHTML.replace(/_TS_TAG_\d+_START\[?/g, "");
+    reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
+
+    // Replace in DOM
+    range.deleteContents();
+    const fragment = document.createRange().createContextualFragment(reconstructedHTML);
+    range.insertNode(fragment);
+
     selection.removeAllRanges();
-  }
-});
+  });
+
+
+
+
+
+    /*
+    // --- Preview selection rewrite (preserve text, use placeholders for nodes) ---
+    previewBtn.addEventListener("click", () => {
+      const selection = window.getSelection();
+      const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      if (!range || selection.toString().trim() === "") {
+        outputBox.textContent = "No text selected.";
+        return;
+      }
+
+      setLoading(true);
+
+      const settings = {
+        tone: mapTone(toneSlider.value),
+        complexity: mapComplexity(complexitySlider.value),
+        brevity: mapBrevity(brevitySlider.value),
+      };
+
+      // Recursive function to replace element nodes with placeholders while keeping their text
+      let placeholderIndex = 0;
+      const placeholderMap = {};
+
+        function replaceNodes(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return node.textContent;
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const innerText = Array.from(node.childNodes).map(replaceNodes).join("");
+          const placeholder = `__TS_TAG_${placeholderIndex}__`;
+          placeholderMap[placeholder] = node.outerHTML;
+          placeholderIndex++;
+          return innerText + " " + placeholder; // keep inner text + placeholder
+        }
+        if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+          return Array.from(node.childNodes).map(replaceNodes).join(" ");
+        }
+        return "";
+      }
+
+
+      //console.log("selected node: ", range.cloneContents())
+      const textWithPlaceholders = replaceNodes(range.cloneContents());
+      //console.log("text with placeholder:",textWithPlaceholders)
+      //return
+      // Send to AI
+      window.postMessage(
+        { type: "TS_GEMINI_REQUEST", text: textWithPlaceholders.trim(), placeholderMap, ...settings },
+        "*"
+      );
+    });
+
+      
+    // --- Apply selection rewrite (preserve styling via placeholders) ---
+      applyBtn.addEventListener("click", () => {
+        if (!lastAIResponse) return alert("No AI response to apply.");
+
+        const selection = window.getSelection();
+        if (!selection.rangeCount || selection.toString().trim() === "") return;
+
+        const range = selection.getRangeAt(0);
+
+        // Clone original DOM nodes for undo
+        const originalNodes = range.cloneContents();
+        undoStack.push({ range: range.cloneRange(), originalNodes });
+
+        // Replace placeholders with original HTML tags
+        let processedHTML = lastAIResponse;
+        if (window.lastTagMap) {
+          for (const [placeholder, html] of Object.entries(window.lastTagMap)) {
+            const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+            processedHTML = processedHTML.replace(regex, html);
+          }
+        }
+
+        // Insert AI content as a span preserving structure
+        range.deleteContents();
+        const container = document.createElement("span");
+        container.classList.add("ts-modified");
+        container.innerHTML = processedHTML; // use innerHTML to restore tags
+        range.insertNode(container);
+
+        // Clear selection
+        selection.removeAllRanges();
+      });
+    */
 
 // --- Undo selection (restore original DOM nodes) ---
 undoBtn.addEventListener("click", () => {
-  while (undoStack.length > 0) {
-    const item = undoStack.pop();
-    if (item.range && item.originalNodes) {
-      item.range.deleteContents();
-      item.range.insertNode(item.originalNodes);
-    }
+  if (undoStack.length === 0) {
+    alert("Nothing to undo.");
+    return;
+  }
+
+  const item = undoStack.pop();
+  if (item.range && item.originalNodes) {
+    item.range.deleteContents();
+    const restored = item.originalNodes.cloneNode(true); // DocumentFragments are one-time use
+    item.range.insertNode(restored);
+
+    // Restore selection for better UX
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(item.range);
   }
 });
+
 
   // --- Reset output ---
   resetBtn.addEventListener("click", () => {
@@ -519,4 +693,38 @@ undoBtn.addEventListener("click", () => {
 
     console.log("Would rewrite page with profile:", profile);
   }
+
+  function htmlToPlaceholders(node) {
+  const tagMap = {};
+  let placeholderId = 0;
+
+  function replaceNode(n) {
+    if (n.nodeType === Node.TEXT_NODE) return n.textContent;
+
+    let placeholder = `{PLACEHOLDER${placeholderId}}`;
+    tagMap[placeholder] = n.outerHTML;
+    placeholderId++;
+
+    return placeholder;
+  }
+
+  // Replace child nodes with placeholders
+  let clonedNode = node.cloneNode(true);
+  clonedNode.querySelectorAll("*").forEach(n => {
+    const placeholder = replaceNode(n);
+    const span = document.createTextNode(placeholder);
+    n.parentNode.replaceChild(span, n);
+  });
+
+  return { textWithPlaceholders: clonedNode.textContent, tagMap };
+}
+
+function restorePlaceholders(aiText, tagMap) {
+  let restored = aiText;
+  for (const placeholder in tagMap) {
+    restored = restored.replaceAll(placeholder, tagMap[placeholder]);
+  }
+  return restored;
+}
+
 })();

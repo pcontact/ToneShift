@@ -29,27 +29,36 @@
     return cloudModel;
   }
 
-  // --- Prompt builder ---
-  function buildPrompt(text, tone, complexity, brevity) {
-    return `
-You are an AI text editor. Rewrite the text below according to the user’s settings:
+// --- Prompt builder ---
+function buildPrompt(text, tone, complexity, brevity) {
+  return `
+You are an AI text editor. Rewrite the text below according to the user’s settings.
 
 User Settings:
 - Tone: ${tone}
 - Complexity: ${complexity}
 - Brevity: ${brevity}
 
-Rules:
+Rules for Rewriting:
 1. Follow the tone precisely.
 2. Adjust vocabulary and sentence structure to match complexity.
 3. Match verbosity or conciseness based on brevity.
-4. Keep meaning accurate, don’t add new info.
+4. Keep meaning accurate — don’t add new information.
 5. Produce polished, natural-sounding text.
+
+Rules for Placeholders:
+- Placeholders are marked as:  _TS_TAG_X_START[original text]_TS_TAG_X_END
+- The text inside [ ... ] is the part directly affected by the placeholder tag.
+- You may move the placeholder and its text within the sentence if needed for natural flow, but always keep the START and END markers around the same text span.
+- Never delete or duplicate a placeholder.
+- Do not alter the placeholder markers (_TS_TAG_X_START / _TS_TAG_X_END).
+- You may rewrite the text inside [ ... ] for tone, complexity, or brevity, but its semantic role must remain the same.
 
 Text to rewrite:
 ${text}
 `;
-  }
+}
+
 
   // --- Chrome Nano ---
   async function tryChromeAI(text, tone, complexity, brevity) {
@@ -98,6 +107,7 @@ ${text}
     if (event.data.type !== "TS_GEMINI_REQUEST") return;
 
     const { text, tone, complexity, brevity } = event.data;
+    //console.log("received: ", event.data.type)
 
     try {
       // Step 1: try Chrome Nano
