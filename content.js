@@ -581,7 +581,7 @@ undoBtn.addEventListener("click", () => {
       setLoading._timeout = setTimeout(() => {
         outputBox.textContent = "⚠️ Request timed out.";
         setLoading(false);
-      }, 20000);
+      }, 40000);
     } else {
       spinner.style.display = "none";
       previewBtn.disabled = false;

@@ -120,7 +120,13 @@ ${text}
       // Step 2: fallback if needed
       if (!output) {
         const fluentRewrite = await tryGeminiCloud(freeWritePrompt);
-        const result = await tryGeminiCloud(buildPromptAlign(fluentRewrite, textWithPlaceholders))
+        console.log("fluenRewrite: ", fluentRewrite)
+
+        let result = {success:false}
+        if (fluentRewrite.success){
+          result = await tryGeminiCloud(buildPromptAlign(fluentRewrite.text, textWithPlaceholders))
+          console.log("After alignment: ", result)
+        }
 
         if (result.success) {
           window.postMessage(
@@ -153,6 +159,7 @@ ${text}
 // === Hybrid Two-Pass Rewrite Pipeline ===
 // Prompt for free rewrite (fluency, tone/complexity/brevity)
 function buildPromptFreeRewrite(textWithoutPlaceholders, { tone, complexity, brevity }) {
+  console.log("calling buildPromptFreeRewrite: ", textWithoutPlaceholders)
   return `
 You are an AI text editor. Rewrite the text according to these settings:
 
@@ -173,23 +180,25 @@ ${textWithoutPlaceholders}
 }
 
 // Prompt for alignment (merge placeholders back in)
-function buildPromptAlign(fluentRewrite, textWithPlaceholders) {
-  return `
-You are an AI alignment editor. 
-We already have a fluent rewrite (correct tone/complexity/brevity) and the original text with placeholders.
+function buildPromptAlign(naturalText, placeholderText) {
+  return `You are an AI Text Alignment Specialist. Your task is to analyze a "Natural Text" and a "Text with Placeholders" and rewrite the Natural Text by inserting the placeholders **only** where the surrounding words in the Natural Text logically and semantically match the context of the placeholder in the provided example.
 
-Task:
-- Use the fluent rewrite as the base wording.
-- Reinsert all placeholders (_TS_TAG_X_START ... _END) from the tagged original.
-- Do not delete, duplicate, or invent placeholders.
-- You may move placeholders slightly for natural flow, but their semantic role must stay the same.
-- Do not change the tone, complexity, or brevity from the fluent rewrite.
+**CRITICAL INSTRUCTIONS:**
+1.  **Analyze for Logical Matches:** Carefully compare the two texts. For each placeholder, find the word/phrase in the Natural Text that has the **exact same meaning and role**.
+2.  **Insert Tags Precisely:** Rewrite the Natural Text by wrapping the identified word or phrase with the **exact, corresponding placeholder tag** (e.g., \`_TS_TAG_0_START[personal computer]_TS_TAG_0_END\`).
+3.  **Preserve Original Text:** Do NOT change, add, or remove any words from the "Natural Text" except to insert the tags. Your output must be the original natural text, only modified with the tags.
+4.  **Handle Placeholders Strictly:**
+    -   **Do NOT delete** placeholders that have a match.
+    -   **Do NOT duplicate** placeholders.
+    -   **Do NOT invent** new placeholders.
+5.  **Omit Unmatched Placeholders:** If a placeholder from the "Text with Placeholders" does not have a clear, logical, and semantic match in the "Natural Text", **omit it entirely**.
 
-Fluent Rewrite:
-${fluentRewrite}
+**Input:**
+- **Natural Text:** "${naturalText}"
+- **Text with Placeholders:** "${placeholderText}"
 
-Original with Placeholders:
-${textWithPlaceholders}
+**Output:**
+Rewritten Natural Text with placeholders inserted:
 `;
 }
 
