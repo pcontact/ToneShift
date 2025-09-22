@@ -185,21 +185,29 @@ function buildPromptAlign(naturalText, placeholderText) {
 
 **CRITICAL INSTRUCTIONS:**
 1.  **Analyze for Logical Matches:** Carefully compare the two texts. For each placeholder, find the word/phrase in the Natural Text that has the **exact same meaning and role**.
-2.  **Insert Tags Precisely:** Rewrite the Natural Text by wrapping the identified word or phrase with the **exact, corresponding placeholder tag** (e.g., \`_TS_TAG_0_START[personal computer]_TS_TAG_0_END\`).
-3.  **Preserve Original Text:** Do NOT change, add, or remove any words from the "Natural Text" except to insert the tags. Your output must be the original natural text, only modified with the tags.
+2.  **Insert Tags Precisely:** Rewrite the Natural Text by wrapping the identified word or phrase with the **exact, corresponding placeholder tag**.
+3.  **Preserve Original Text:** Do NOT change, add, or remove any words from the "Natural Text" except to insert the tags.
 4.  **Handle Placeholders Strictly:**
     -   **Do NOT delete** placeholders that have a match.
     -   **Do NOT duplicate** placeholders.
     -   **Do NOT invent** new placeholders.
-5.  **Omit Unmatched Placeholders:** If a placeholder from the "Text with Placeholders" does not have a clear, logical, and semantic match in the "Natural Text", **omit it entirely**.
+5.  **Omit Unmatched Placeholders:** If a placeholder does not have a clear semantic match in the "Natural Text", **omit it entirely**.
+6.  **List Omitted Tags:** After the rewritten text, add a line with "#omitted placeholders" followed by a JSON string array of all omitted placeholder tags.
 
-**Input:**
+**Example:**
+- **Natural Text:** "A personal computer (PC) is a computer for one person. People use it to write, browse the internet."
+- **Text with Placeholders:** "A _TS_TAG_0_START[personal computer]_TS_TAG_0_END ( _TS_TAG_1_START[PC]_TS_TAG_1_END ), or simply _TS_TAG_2_START[computer]_TS_TAG_2_END , is a _TS_TAG_3_START[computer]_TS_TAG_3_END designed for individual use. _TS_TAG_7_START[_TS_TAG_6_START[_TS_TAG_4_START[[]_TS_TAG_4_END1_TS_TAG_5_START[]]_TS_TAG_5_END]_TS_TAG_6_END]_TS_TAG_7_END It is typically used for tasks such as _TS_TAG_8_START[word processing]_TS_TAG_8_END , _TS_TAG_9_START[internet browsing]_TS_TAG_9_END , _TS_TAG_10_START[email]_TS_TAG_10_END , _TS_TAG_11_START[multimedia]_TS_TAG_11_END playback, and _TS_TAG_12_START[gaming]_TS_TAG_12_END ."
+
+- **Output:**
+"A _TS_TAG_0_START[personal computer]_TS_TAG_0_END (_TS_TAG_1_START[PC]_TS_TAG_1_END) is a computer for one person. People use it to write, browse the internet."
+#omitted placeholders
+["_TS_TAG_2_START[computer]_TS_TAG_2_END", "_TS_TAG_3_START[computer]_TS_TAG_3_END", "_TS_TAG_7_START[_TS_TAG_6_START[_TS_TAG_4_START[[]_TS_TAG_4_END1_TS_TAG_5_START[]]_TS_TAG_5_END]_TS_TAG_6_END]_TS_TAG_7_END", "_TS_TAG_8_START[word processing]_TS_TAG_8_END", "_TS_TAG_9_START[internet browsing]_TS_TAG_9_END", "_TS_TAG_10_START[email]_TS_TAG_10_END", "_TS_TAG_11_START[multimedia]_TS_TAG_11_END", "_TS_TAG_12_START[gaming]_TS_TAG_12_END"]
+
+**Your Task:**
 - **Natural Text:** "${naturalText}"
 - **Text with Placeholders:** "${placeholderText}"
 
-**Output:**
-Rewritten Natural Text with placeholders inserted:
-`;
+**Output:`;
 }
 
   console.log("✅ Hybrid AI handler ready (Chrome Nano + Gemini fallback)");

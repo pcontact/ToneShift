@@ -283,6 +283,10 @@
 
     if (event.data.type === "TS_GEMINI_RESPONSE") {
       lastAIResponse = event.data.text;
+
+      // convert any omitted placeholder during aligning phase into html card
+      lastAIResponse = convertOmittedPlaceHolders(lastAIResponse)
+
       outputBox.textContent = lastAIResponse;
       setLoading(false);
     }
@@ -318,48 +322,48 @@
     return "";
   }
 
-// --- Preview selection rewrite ---
-previewBtn.addEventListener("click", () => {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    outputBox.textContent = "No text selected.";
-    return;
-  }
+  // --- Preview selection rewrite ---
+  previewBtn.addEventListener("click", () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      outputBox.textContent = "No text selected.";
+      return;
+    }
 
-  const selectionText = selection.toString().trim();
-  if (!selectionText) {
-    outputBox.textContent = "No text selected.";
-    return;
-  }
+    const selectionText = selection.toString().trim();
+    if (!selectionText) {
+      outputBox.textContent = "No text selected.";
+      return;
+    }
 
-  setLoading(true);
+    setLoading(true);
 
-  // Reset globals
-  placeholderIndex = 0;
-  placeholderMap = {};
+    // Reset globals
+    placeholderIndex = 0;
+    placeholderMap = {};
 
-  // Build text with placeholders
-  const textWithPlaceholders = replaceNodes(selection.getRangeAt(0).cloneContents());
-  //console.log("Text with placeholders:", textWithPlaceholders);
-  // console.log("Placeholder map:", placeholderMap);
+    // Build text with placeholders
+    const textWithPlaceholders = replaceNodes(selection.getRangeAt(0).cloneContents());
+    //console.log("Text with placeholders:", textWithPlaceholders);
+    // console.log("Placeholder map:", placeholderMap);
 
-  const settings = {
-    tone: mapTone(toneSlider.value),
-    complexity: mapComplexity(complexitySlider.value),
-    brevity: mapBrevity(brevitySlider.value),
-  };
+    const settings = {
+      tone: mapTone(toneSlider.value),
+      complexity: mapComplexity(complexitySlider.value),
+      brevity: mapBrevity(brevitySlider.value),
+    };
 
-  // Send to AI (both versions)
-  window.postMessage(
-    {
-      type: "TS_GEMINI_REQUEST",
-      textWithPlaceholders: textWithPlaceholders.trim(),
-      textWithoutPlaceholders: selectionText, // <-- raw version
-      ...settings,
-    },
-    "*"
-  );
-});
+    // Send to AI (both versions)
+    window.postMessage(
+      {
+        type: "TS_GEMINI_REQUEST",
+        textWithPlaceholders: textWithPlaceholders.trim(),
+        textWithoutPlaceholders: selectionText, // <-- raw version
+        ...settings,
+      },
+      "*"
+    );
+  });
 
 
   
@@ -410,96 +414,6 @@ previewBtn.addEventListener("click", () => {
 
     selection.removeAllRanges();
   });
-
-
-
-
-
-    /*
-    // --- Preview selection rewrite (preserve text, use placeholders for nodes) ---
-    previewBtn.addEventListener("click", () => {
-      const selection = window.getSelection();
-      const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-      if (!range || selection.toString().trim() === "") {
-        outputBox.textContent = "No text selected.";
-        return;
-      }
-
-      setLoading(true);
-
-      const settings = {
-        tone: mapTone(toneSlider.value),
-        complexity: mapComplexity(complexitySlider.value),
-        brevity: mapBrevity(brevitySlider.value),
-      };
-
-      // Recursive function to replace element nodes with placeholders while keeping their text
-      let placeholderIndex = 0;
-      const placeholderMap = {};
-
-        function replaceNodes(node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          return node.textContent;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const innerText = Array.from(node.childNodes).map(replaceNodes).join("");
-          const placeholder = `__TS_TAG_${placeholderIndex}__`;
-          placeholderMap[placeholder] = node.outerHTML;
-          placeholderIndex++;
-          return innerText + " " + placeholder; // keep inner text + placeholder
-        }
-        if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-          return Array.from(node.childNodes).map(replaceNodes).join(" ");
-        }
-        return "";
-      }
-
-
-      //console.log("selected node: ", range.cloneContents())
-      const textWithPlaceholders = replaceNodes(range.cloneContents());
-      //console.log("text with placeholder:",textWithPlaceholders)
-      //return
-      // Send to AI
-      window.postMessage(
-        { type: "TS_GEMINI_REQUEST", text: textWithPlaceholders.trim(), placeholderMap, ...settings },
-        "*"
-      );
-    });
-
-      
-    // --- Apply selection rewrite (preserve styling via placeholders) ---
-      applyBtn.addEventListener("click", () => {
-        if (!lastAIResponse) return alert("No AI response to apply.");
-
-        const selection = window.getSelection();
-        if (!selection.rangeCount || selection.toString().trim() === "") return;
-
-        const range = selection.getRangeAt(0);
-
-        // Clone original DOM nodes for undo
-        const originalNodes = range.cloneContents();
-        undoStack.push({ range: range.cloneRange(), originalNodes });
-
-        // Replace placeholders with original HTML tags
-        let processedHTML = lastAIResponse;
-        if (window.lastTagMap) {
-          for (const [placeholder, html] of Object.entries(window.lastTagMap)) {
-            const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
-            processedHTML = processedHTML.replace(regex, html);
-          }
-        }
-
-        // Insert AI content as a span preserving structure
-        range.deleteContents();
-        const container = document.createElement("span");
-        container.classList.add("ts-modified");
-        container.innerHTML = processedHTML; // use innerHTML to restore tags
-        range.insertNode(container);
-
-        // Clear selection
-        selection.removeAllRanges();
-      });
-    */
 
 // --- Undo selection (restore original DOM nodes) ---
 undoBtn.addEventListener("click", () => {
@@ -696,37 +610,61 @@ undoBtn.addEventListener("click", () => {
     console.log("Would rewrite page with profile:", profile);
   }
 
-  function htmlToPlaceholders(node) {
-  const tagMap = {};
-  let placeholderId = 0;
+  function convertOmittedPlaceHolders(inputText) {
+  const marker = "#omitted placeholders"; // marker as inserted by model in buildPromptAlign phase
+  const markerIndex = inputText.indexOf(marker);
 
-  function replaceNode(n) {
-    if (n.nodeType === Node.TEXT_NODE) return n.textContent;
-
-    let placeholder = `{PLACEHOLDER${placeholderId}}`;
-    tagMap[placeholder] = n.outerHTML;
-    placeholderId++;
-
-    return placeholder;
+  if (markerIndex === -1) {
+    console.error("No '#omitted placeholders' section found.");
+    return inputText;
   }
 
-  // Replace child nodes with placeholders
-  let clonedNode = node.cloneNode(true);
-  clonedNode.querySelectorAll("*").forEach(n => {
-    const placeholder = replaceNode(n);
-    const span = document.createTextNode(placeholder);
-    n.parentNode.replaceChild(span, n);
+  // Keep text above the marker
+  const beforeMarker = inputText.slice(0, markerIndex).trim();
+
+  // Get JSON text after the marker
+  const afterMarker = inputText.slice(markerIndex + marker.length).trim();
+
+  let placeholders;
+  try {
+    placeholders = JSON.parse(afterMarker);
+  } catch (err) {
+    console.error("Failed to parse JSON:", err);
+    return beforeMarker; // return only text if JSON parsing fails
+  }
+
+  // Build card HTML string
+  let cardHTML = `
+<div style="
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  max-width: 800px;
+  margin: 10px auto;
+">`;
+
+  placeholders.forEach(item => {
+    cardHTML += `
+  <div style="
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 14px;
+    text-align: center;
+    background: #f5f5f5;
+  ">${item}</div>`;
   });
 
-  return { textWithPlaceholders: clonedNode.textContent, tagMap };
-}
+  cardHTML += "\n</div>";
 
-function restorePlaceholders(aiText, tagMap) {
-  let restored = aiText;
-  for (const placeholder in tagMap) {
-    restored = restored.replaceAll(placeholder, tagMap[placeholder]);
-  }
-  return restored;
+  // Combine original text above marker + card HTML
+  const finalText = beforeMarker + "\n\n" + cardHTML;
+  return finalText;
 }
 
 })();
