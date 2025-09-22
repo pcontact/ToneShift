@@ -649,15 +649,21 @@ undoBtn.addEventListener("click", () => {
 ">`;
 
   placeholders.forEach(item => {
-    cardHTML += `
-  <div style="
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 4px 6px;
-    font-size: 14px;
-    text-align: center;
-    background: #f5f5f5;
-  ">${item}</div>`;
+    const key = item.split("_START")[0] // grab the key
+    const node = placeholderMap[key]
+
+    // only add nodes that are links in the cardhtml
+    if (node instanceof HTMLAnchorElement) {
+          cardHTML += `
+            <div style="
+              border: 1px solid #ddd;
+              border-radius: 4px;
+              padding: 4px 6px;
+              font-size: 14px;
+              text-align: center;
+              background: #f5f5f5;
+            ">${item}</div>`;
+    }
   });
 
   cardHTML += "\n</div>";
