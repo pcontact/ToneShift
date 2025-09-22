@@ -610,9 +610,10 @@ undoBtn.addEventListener("click", () => {
     console.log("Would rewrite page with profile:", profile);
   }
 
-  function convertOmittedPlaceHolders(inputText) {
-  const marker = "#omitted placeholders"; // marker as inserted by model in buildPromptAlign phase
+function convertOmittedPlaceHolders(inputText) {
+  const marker = "#omitted placeholders"; 
   const markerIndex = inputText.indexOf(marker);
+  let hasLink = false;
 
   if (markerIndex === -1) {
     console.error("No '#omitted placeholders' section found.");
@@ -630,47 +631,53 @@ undoBtn.addEventListener("click", () => {
     placeholders = JSON.parse(afterMarker);
   } catch (err) {
     console.error("Failed to parse JSON:", err);
-    return beforeMarker; // return only text if JSON parsing fails
+    return beforeMarker; 
   }
 
-  // Build card HTML string
+  // Build compact card HTML string with smaller header
   let cardHTML = `
-<div style="
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 5px;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-  max-width: 800px;
-  margin: 10px auto;
-">`;
+<div style="max-width: 800px; margin: 4px auto 10px; font-family: sans-serif;">
+  <h5 style="margin: 2px 0 4px; font-size: 13px; color: #555;">Related links</h5>
+  <div style="
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  ">`;
 
   placeholders.forEach(item => {
-    const key = item.split("_START")[0] // grab the key
-    const node = placeholderMap[key]
+    const key = item.split("_START")[0]; // grab the key
+    const node = placeholderMap[key];
 
-    // only add nodes that are links in the cardhtml
+    // only add nodes that are links in the cardHTML
     if (node instanceof HTMLAnchorElement) {
-          cardHTML += `
-            <div style="
-              border: 1px solid #ddd;
-              border-radius: 4px;
-              padding: 4px 6px;
-              font-size: 14px;
-              text-align: center;
-              background: #f5f5f5;
-            ">${item}</div>`;
+      hasLink = true;
+      cardHTML += `
+      <div style="
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        padding: 3px 5px;
+        font-size: 12px;
+        text-align: center;
+        background: #f9f9f9;
+      ">${item}</div>`;
     }
   });
 
-  cardHTML += "\n</div>";
+  cardHTML += "\n  </div>\n</div>";
 
-  // Combine original text above marker + card HTML
-  const finalText = beforeMarker + "\n\n" + cardHTML;
+  // Combine original text above marker + card HTML if there are links
+  let finalText = beforeMarker;
+  if (hasLink) {
+    finalText += "\n\n" + cardHTML;
+  }
+
   return finalText;
 }
+
 
 })();
