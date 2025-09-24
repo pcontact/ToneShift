@@ -1,5 +1,6 @@
 (function () {
   let cloudModel = null;
+  let _rewriteWithFormat = false // indicate if we will use buildPromptAlign in the pipeline
 
   // --- API key bridge ---
   function getApiKey() {
@@ -75,6 +76,7 @@ ${text}
       );
       return response;
     } catch (err) {
+      alert("Chrome AI failed:", err)
       console.warn("Chrome AI failed:", err);
       return null;
     }
@@ -96,18 +98,21 @@ ${text}
         message =
           "⚠️ No API key found. Please open the ToneShift popup and add your Gemini API key.";
       }
+      alert(message)
       console.error("Gemini error:", err);
       return { success: false, error: message };
     }
   }
+
 
   // --- Listener ---
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
     if (event.data.type !== "TS_GEMINI_REQUEST") return;
 
-    const { textWithPlaceholders, textWithoutPlaceholders, tone, complexity, brevity } = event.data;
+    const { textWithPlaceholders, textWithoutPlaceholders, rewriteWithFormat, tone, complexity, brevity } = event.data;
     const profile = {tone, complexity, brevity}
+    _rewriteWithFormat = rewriteWithFormat
 
     const freeWritePrompt = buildPromptFreeRewrite(textWithoutPlaceholders, profile)
 
@@ -123,9 +128,18 @@ ${text}
         console.log("fluenRewrite: ", fluentRewrite)
 
         let result = {success:false}
+
         if (fluentRewrite.success){
-          result = await tryGeminiCloud(buildPromptAlign(fluentRewrite.text, textWithPlaceholders))
-          console.log("After alignment: ", result)
+          // if rewriteWithFormat is true then we call buildPromptAlign with fluentRewrite
+          // to insert placeholder tags - used to map node level tags. else we return fluenRewrite
+          if (_rewriteWithFormat){
+              result = await tryGeminiCloud(buildPromptAlign(fluentRewrite.text, textWithPlaceholders))
+              console.log("After alignment: ", result)
+            }else{
+            result = fluentRewrite
+          }
+          //result = await tryGeminiCloud(buildPromptAlign(fluentRewrite.text, textWithPlaceholders))
+          
         }
 
         if (result.success) {
@@ -143,9 +157,19 @@ ${text}
       }
 
       // If Chrome Nano succeeded
-      const result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders))
+      const result2 = {success:false}
+      
+      // if rewriteWithFormat is true then we call buildPromptAlign with fluentRewrite
+      // to insert placeholder tags - used to map node level tags. else we return fluenRewrite    
+      if (_rewriteWithFormat){
+            result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders))
+            console.log("After alignment: ", result2)
+          }else{
+          result2 = output
+        }
 
       window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
+      
     } catch (err) {
       console.error("Hybrid handler error:", err);
       window.postMessage(
@@ -159,7 +183,7 @@ ${text}
 // === Hybrid Two-Pass Rewrite Pipeline ===
 // Prompt for free rewrite (fluency, tone/complexity/brevity)
 function buildPromptFreeRewrite(textWithoutPlaceholders, { tone, complexity, brevity }) {
-  console.log("calling buildPromptFreeRewrite: ", textWithoutPlaceholders)
+  //console.log("calling buildPromptFreeRewrite: ", textWithoutPlaceholders)
   return `
 You are an AI text editor. Rewrite the text according to these settings:
 
