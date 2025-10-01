@@ -72,30 +72,26 @@
 
     }
       
-    .ts-preview-highlight {
-      /*background-color: #fff9c4 !important;*/
-      border-radius: 3px;
-      padding: 1px 3px;
-      border: 1px dashed #ffd54f !important;
-      position: relative;
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px; /* Optional: adds space between the rows */
-    }
+  .ts-preview-container {
+    border-radius: 3px;
+    padding: 1px 3px;
+    border: 1px dashed #ffd54f !important;
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px; /* Optional: adds space between the rows */
+  }
 
-    /* Container must provide positioning context */
-    .preview-container {
-      position: relative; /* ensures the button anchors to this element */
-    }
-    
-    /* Inline preview styles - FIXED: Moved to main document CSS */
-    .ts-preview-text-highlight {
-      background-color: #fff9c4 !important;
-      border-radius: 3px;
-      padding: 1px 3px;
-      position: relative;
-      display: inline;
-    }
+  .ts-preview-container .ts-preview-text-highlight {
+    background-color: #fff9c4 !important;
+    border-radius: 3px;
+    padding: 1px 3px;
+    position: relative;
+    display: inline; /* keep inline behavior */
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
 
   /* Revert button locked to top-right corner */
   .ts-revert-button {
@@ -137,8 +133,8 @@
     position: fixed; /* relative to viewport */
     width: 24px;
     height: 24px;
-    border: 3px solid rgba(255, 38, 0, 0.3);
-    border-top-color: #0e0aceff;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
     border-radius: 70%;
     animation: ts-spin 0.8s linear infinite;
     z-index: 999999;
@@ -312,7 +308,7 @@
       <button id="ts-advanced-toggle">⚙️ Advanced Options</button>
 
       <div id="ts-advanced-controls" style="display: none;">
-        <label>Custom Profiles:</label>
+        <label>Custom Modes:</label>
         <select id="ts-profile-select"></select><br><br>
         <button id="ts-save-profile">Save Current</button>
         <button id="ts-edit-profile">Edit Selected</button>
@@ -333,9 +329,11 @@
         <h3>Model Settings</h3>
         <div class="setting-with-tooltip">
           <input type="checkbox" id="ts-preserve-formatting">
-          <label for="ts-preserve-formatting">Maintain original formatting</label>
+          <label for="ts-preserve-formatting">Maintain page original formatting</label>
           <span class="tooltip" role="tooltip">
-            Preserve existing text styling, bold, italics, links, and other HTML formatting.
+            Preserve existing text styling, bold, italics, links, and other HTML formatting.<br>
+            <span>Note: When enabled, rewrites can take more time and also more token consumption when
+            using a Gemini API key.</span>
           </span>
         </div>
         <br><br>
@@ -384,7 +382,7 @@
   const modeSelect = qs("ts-mode-select");
   const advancedToggle = qs("ts-advanced-toggle");
   const advancedControls = qs("ts-advanced-controls");
-  const profileSelect = qs("ts-profile-select");
+  const customModeSelect = qs("ts-profile-select");
   const saveProfileBtn = qs("ts-save-profile");
   const editProfileBtn = qs("ts-edit-profile");
   const deleteProfileBtn = qs("ts-delete-profile");
@@ -433,22 +431,23 @@
   // --- Profiles ---
   const builtInPresets = {
     "Kid Mode": { tone: 2, complexity: 2, brevity: 8 },
-    "Professional": { tone: 8, complexity: 9, brevity: 7 },
-    "Casual": { tone: 5, complexity: 5, brevity: 5 },
-    "Goggy": { tone: 6, complexity: 5, brevity: 6 },
-    "Lazy": { tone: 2, complexity: 2, brevity: 8 },
     "No Brain": { tone: 6, complexity: 2, brevity: 8 },
+    "Casual": { tone: 5, complexity: 5, brevity: 5 },
+    "Lazy": { tone: 2, complexity: 2, brevity: 8 },
+    "Professional": { tone: 8, complexity: 9, brevity: 7 },
+    "Goggy": { tone: 6, complexity: 5, brevity: 6 },
+    
   };
   let userProfiles = {};
 
   // Mode display names mapping
   const modeDisplayNames = {
     "Kid Mode": "Simplify",
-    "Professional": "Formalize", 
+    "No Brain": "Easy Read",
     "Casual": "Casual",
-    "Goggy": "Creative",
     "Lazy": "Shorten",
-    "No Brain": "Easy Read"
+    "Professional": "Formalize", 
+    "Goggy": "Creative"
   };
 
   // --- Text Selection and Floating Button Logic - COMPLETELY REWRITTEN ---
@@ -503,8 +502,8 @@
   }
 
   function hideFloatingPreviewButton() {
-    const n = fPBContainer.querySelector("#floating-mode-dropdown")
-    n?.remove()
+    //const n = fPBContainer.querySelector("#floating-mode-dropdown")
+    //n?.remove()
 
     fPBContainer.style.display = 'none';
     floatingButtonState.range = null;
@@ -514,7 +513,7 @@
   // --- create Revert Button ---
   function createRevertPreviewBtn() {
     const revertPreviewBtn = document.createElement("button");
-    revertPreviewBtn.textContent = "×";
+    revertPreviewBtn.textContent = "Back to original text";
     revertPreviewBtn.className = "ts-revert-button";
     revertPreviewBtn.title = "Revert to original text";
     revertPreviewBtn.style.display = "block"; // show by default when created
@@ -622,7 +621,7 @@
     const selectedText = selection.toString().trim();
     
     if (selectedText.length > 5) {
-      console.log("selected some text")
+      //console.log("selected some text")
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       
@@ -743,16 +742,18 @@
     userProfiles = data.profiles || {};
     
     // Clear and rebuild both dropdowns
-    profileSelect.innerHTML = "";
+    customModeSelect.innerHTML = "";
     modeSelect.innerHTML = "";
     
     // Add built-in presets to both dropdowns
     Object.keys(builtInPresets).forEach(name => {
-      // Add to profile dropdown
+      // Add to custom mode dropdown
+      /*
       const profileOption = document.createElement("option");
       profileOption.value = name;
       profileOption.textContent = modeDisplayNames[name] || name;
-      profileSelect.appendChild(profileOption);
+      customModeSelect.appendChild(profileOption);
+      */
       
       // Add to mode dropdown
       const modeOption = document.createElement("option");
@@ -764,11 +765,12 @@
     
     // Add user profiles to both dropdowns
     Object.keys(userProfiles).forEach(name => {
-      // Add to profile dropdown
+      //console.log("::",name)
+      // Add to custom mode dropdown
       const profileOption = document.createElement("option");
       profileOption.value = name;
       profileOption.textContent = name + " (Custom)";
-      profileSelect.appendChild(profileOption);
+      customModeSelect.appendChild(profileOption);
       
       // Add to mode dropdown
       const modeOption = document.createElement("option");
@@ -781,8 +783,9 @@
     if (modeSelect.options.length > 0) {
       modeSelect.value = "Kid Mode";
     }
-    if (profileSelect.options.length > 0) {
-      profileSelect.value = "Kid Mode";
+    if (customModeSelect.options.length > 0) {
+      //console.log("::",customModeSelect.options[0].name)
+      customModeSelect.value = customModeSelect.options[0].name;
     }
     
     //console.log("Profiles loaded. Built-in:", Object.keys(builtInPresets).length, 
@@ -814,7 +817,7 @@
     const profile = { ...builtInPresets[modeName], ...userProfiles[modeName] };
     if (profile) {
       applyProfile(profile);
-      profileSelect.value = modeName;
+      customModeSelect.value = modeName;
     }
   });
 
@@ -830,8 +833,8 @@
   complexitySlider.addEventListener("input", updateSliderValues);
   brevitySlider.addEventListener("input", updateSliderValues);
 
-  profileSelect.addEventListener("change", () => {
-    const name = profileSelect.value;
+  customModeSelect.addEventListener("change", () => {
+    const name = customModeSelect.value;
     const profile = { ...builtInPresets[name], ...userProfiles[name] };
     if (profile) applyProfile(profile);
   });
@@ -846,13 +849,13 @@
     userProfiles[name] = { tone, complexity, brevity };
     await chrome.storage.local.set({ profiles: userProfiles });
     await loadProfiles(); // Reload both dropdowns
-    profileSelect.value = name;
+    customModeSelect.value = name;
     modeSelect.value = name;
     alert(`Profile saved as "${name}"`);
   });
 
   editProfileBtn.addEventListener("click", async () => {
-    const name = profileSelect.value;
+    const name = customModeSelect.value;
     if (!name) return alert("Select a profile to edit.");
     userProfiles[name] = {
       tone: Number(toneSlider.value),
@@ -861,13 +864,13 @@
     };
     await chrome.storage.local.set({ profiles: userProfiles });
     await loadProfiles(); // Reload both dropdowns
-    profileSelect.value = name;
+    customModeSelect.value = name;
     modeSelect.value = name;
     alert(`Profile "${name}" updated`);
   });
 
   deleteProfileBtn.addEventListener("click", async () => {
-    const name = profileSelect.value;
+    const name = customModeSelect.value;
     if (!name) return alert("Select a profile to delete.");
     if (!userProfiles[name]) return alert("Cannot delete built-in profile.");
     delete userProfiles[name];
@@ -972,7 +975,7 @@
 
       // Create preview container - FIXED: Ensure highlight class is applied
       const previewContainer = document.createElement("span");
-      previewContainer.className = "ts-preview-highlight";
+      previewContainer.className = "ts-preview-container";
       
       // Insert the reconstructed content
       const fragment = document.createRange().createContextualFragment(reconstructedHTML);
@@ -1242,12 +1245,14 @@
         setLoading(false);
         
         // Reset preview state on timeout
+        /*
         if (isPreviewMode) {
           isPreviewMode = false;
           previewRange = null;
           previewOriginalContent = null;
         }
-      }, 40000);
+        */
+      }, 100000);
     } else {
       spinner.style.display = "none";
       previewBtn.disabled = false;
@@ -1370,7 +1375,7 @@
     let hasLink = false;
 
     if (markerIndex === -1) {
-      console.error("No '#omitted placeholders' section found.");
+      console.log("No '#omitted placeholders' section found.");
       return inputText;
     }
 
