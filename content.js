@@ -71,62 +71,93 @@
       gap: 5px; /* Optional: adds space between the button and the icon */
 
     }
-      
+  /* Preview container - minimal padding, accent border */
   .ts-preview-container {
-    border-radius: 3px;
-    padding: 1px 3px;
-    border: 1px dashed #ffd54f !important;
     position: relative;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px; /* Optional: adds space between the rows */
+    margin: 1em 0;                
+    padding: 0;
+    border-radius: 6px;
+    border-left: 4px solid #7c4dff;  /* accent only on left */
+    background: transparent;
+    box-shadow: none;
+    font-family: inherit;
+    color: inherit;
+    display: block;
+    width: 100%;
   }
 
-  .ts-preview-container .ts-preview-text-highlight {
-    background-color: #fff9c4 !important;
-    border-radius: 3px;
-    padding: 1px 3px;
-    position: relative;
-    display: inline; /* keep inline behavior */
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
+  /* Meta row sits just above the rewritten text */
+  .ts-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0 6px 8px;  /* aligns with highlight offset */
   }
 
-
-  /* Revert button locked to top-right corner */
-  .ts-revert-button {
-    background: #ff2600ff;
-    color: white;
-    border: none;
-    border-radius: 4px;
+  /* Badge */
+  .ts-badge {
+    background: #b388ff;
+    color: #121212;
+    font-size: 10px;
+    font-weight: 600;
     padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+
+  /* Revert button - always blue */
+  .ts-revert-button {
+    background: #1e88e5;
+    color: #ffffff;
+    border: 1px solid #1565c0;
+    padding: 4px 8px;
     font-size: 12px;
+    border-radius: 4px;
     cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-    z-index: 10;
-    display: none;
-    font-family: sans-serif;
-    font-weight: bold;
-    line-height: 1;
-    white-space: nowrap;
-
-    /* Grid-specific positioning */
-    justify-self: end;  /* Aligns the item to the right edge of its grid cell */
-    align-self: start;   /* Aligns the item to the top edge of its grid cell */
-
-    /* Initial state: make it slightly transparent */
-    opacity: 0.5;
-    
-    /* Add a smooth transition for a better user experience */
-    transition: opacity 0.3s ease-in-out;
+    font-weight: 500;
+    transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
   }
 
   .ts-revert-button:hover {
-    background: #ff2600ff;
+    background: #1565c0;
+    box-shadow: 0 2px 6px rgba(21, 101, 192, 0.4);
     transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    opacity: 1;
   }
+
+  .ts-revert-button:focus {
+    outline: 3px solid rgba(30, 136, 229, 0.4);
+    outline-offset: 2px;
+  }
+
+  /* Inner quoted content */
+  .ts-preview-text-highlight {
+    padding: 12px;
+    border-radius: 4px;
+    line-height: 1.6;
+    font-size: 0.95rem;
+
+    margin-left: 8px;         
+    width: calc(100% - 8px);
+  }
+
+  /* Light mode background */
+  @media (prefers-color-scheme: light) {
+    .ts-preview-text-highlight {
+      background: #f6f2ff;   /* soft lavender tint */
+      color: #2a1b4d;        /* dark violet text for readability */
+    }
+  }
+
+  /* Dark mode background */
+  @media (prefers-color-scheme: dark) {
+    .ts-preview-text-highlight {
+      background: rgba(46, 40, 64, 0.85); 
+      color: #f0eaff;
+    }
+  }
+
 
     /* Spinner styling */
   .ts-await-rewrite-spinner {
@@ -164,8 +195,8 @@
   // --- Floating preview button ---
   const floatingPreviewBtn = document.createElement("button");
   floatingPreviewBtn.className = "ts-floating-preview-btn";
-  floatingPreviewBtn.textContent = "🔍 Rewrite";
-  floatingPreviewBtn.title = "Preview text transformation with ToneShift";
+  floatingPreviewBtn.textContent = "✨ Refine";
+  floatingPreviewBtn.title = "Polish your selected text instantly with ToneShift.";
   //document.body.appendChild(floatingPreviewBtn);
 
   const fPBContainer = document.createElement("div")
@@ -344,7 +375,7 @@
 
       <hr>
 
-      <button id="ts-preview">Preview</button>
+      <button id="ts-preview" title="Polish your selected text instantly with ToneShift.">Refine</button>
       <button id="ts-apply">Apply</button>
       <button id="ts-undo">Undo</button>
       <button id="ts-reset">Reset</button>
@@ -644,6 +675,29 @@
     }
   });
 
+  // expand the selection to a whole paragraph
+  function expandSelectionToParagraph() {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    const range = selection.getRangeAt(0);
+    let node = range.startContainer;
+
+    // climb up the DOM until we hit a <p> element
+    while (node && node.nodeName.toLowerCase() !== "p") {
+      node = node.parentNode;
+    }
+
+    if (node && node.nodeName.toLowerCase() === "p") {
+      const newRange = document.createRange();
+      newRange.selectNodeContents(node);
+
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
+  }
+
+
   // Floating button click handler - FIXED: Use stored state
   floatingPreviewBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -651,9 +705,10 @@
     
     if (floatingButtonState.range) {
       // Create a selection from the stored range
+      expandSelectionToParagraph() // expand the selection to a whole paragraph
       const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(floatingButtonState.range.cloneRange());
+      //selection.removeAllRanges();
+      //selection.addRange(floatingButtonState.range.cloneRange());
       
       // Use the same preview logic
       performPreview(selection);
@@ -973,42 +1028,56 @@
       reconstructedHTML = reconstructedHTML.replace(/_TS_TAG_\d+_START\[?/g, "");
       reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
 
-      // Create preview container - FIXED: Ensure highlight class is applied
-      const previewContainer = document.createElement("span");
+      // Create preview container
+      const previewContainer = document.createElement("aside");
       previewContainer.className = "ts-preview-container";
-      
-      // Insert the reconstructed content
-      const fragment = document.createRange().createContextualFragment(reconstructedHTML);
-      const textContainer = document.createElement("span")
-      textContainer.appendChild(fragment)
-      textContainer.className = "ts-preview-text-highlight"
+      previewContainer.setAttribute("role", "region");
+      previewContainer.setAttribute("aria-labelledby", "ai-label");
 
-      //const range = selection.getRangeAt(0);
-      //const rect = range.getBoundingClientRect();
+      // Create meta row (badge + button)
+      const metaRow = document.createElement("div");
+      metaRow.className = "ts-meta";
 
-      // create revert button
-      const revertButton = createRevertPreviewBtn()
-      const mapKey = getMapKey()
-      revertButton.id = mapKey
+      // Create AI badge
+      const badge = document.createElement("span");
+      badge.className = "ts-badge";
+      badge.id = "ai-label";
+      badge.textContent = "";
+
+      // Create revert button
+      const revertButton = createRevertPreviewBtn();
+      const mapKey = getMapKey();
+      revertButton.id = mapKey;
+      revertButton.textContent = "Back to original text";
+      revertButton.classList.add("ts-revert-button");
+
+      // Handle revert click
       revertButton.addEventListener("click", (e) => {
         e.stopPropagation();
-        //revertInlinePreview();
-        //console.log("rewrite map: ", rewriteMap)
-        const {range, originalNodes} = rewriteMap[revertButton.id]
+        const { range, originalNodes } = rewriteMap[revertButton.id];
         range.deleteContents();
         const restored = originalNodes.cloneNode(true);
         range.insertNode(restored);
 
-        // delete from rewriteMap
-        delete rewriteMap[revertButton.id]
-
-        // Clear state
+        // Cleanup state
+        delete rewriteMap[revertButton.id];
         previewRange = null;
         previewOriginalContent = null;
         isPreviewMode = false;
       });
 
-      previewContainer.appendChild(revertButton);
+      // Append badge + button to meta
+      metaRow.appendChild(badge);
+      metaRow.appendChild(revertButton);
+
+      // Create text container
+      const fragment = document.createRange().createContextualFragment(reconstructedHTML);
+      const textContainer = document.createElement("div");
+      textContainer.className = "ts-preview-text-highlight";
+      textContainer.appendChild(fragment);
+
+      // Assemble final structure
+      previewContainer.appendChild(metaRow);
       previewContainer.appendChild(textContainer);
 
 
