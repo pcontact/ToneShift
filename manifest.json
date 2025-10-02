@@ -29,7 +29,15 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["pageGemini.js", "pageGeminiLoader.js", "pageHybrid.js"],
+      "resources": [
+        "pageGemini.js",
+        "pageGeminiLoader.js",
+        "pageHybrid.js",
+        "utils/readabilityHelpers.js",
+        "utils/extractMainText.js",
+        "utils/getRewriteContext.js",
+        "libs/Readability.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

@@ -1,4 +1,4 @@
-(function () {
+(async () => {
   if (document.getElementById("toneshift-sidebar-host")) return;
 
   console.log("ToneShift sidebar injected!");
@@ -13,6 +13,14 @@
   hybridScript.src = chrome.runtime.getURL("pageHybrid.js");
   document.documentElement.appendChild(hybridScript);
 
+  // Dynamically add Readability.js
+  const readabilityScript = document.createElement('script');
+  readabilityScript.src = chrome.runtime.getURL('libs/Readability.js');
+  document.head.appendChild(readabilityScript);
+
+  // add getRewriteContext.js
+   const getRewriteContextModule = await import(chrome.runtime.getURL('utils/getRewriteContext.js'));
+  
   // --- Floating icon CSS ---
   const style = document.createElement("style");
   style.textContent = `
@@ -184,6 +192,10 @@
   `;
 
   document.head.appendChild(style);
+
+  // page main text contents
+  let mainText = null
+  let mainTextAvailable = false
 
   // --- Floating icon ---
   const floatingIcon = document.createElement("div");
@@ -434,8 +446,6 @@
   const autoRewriteToggle = qs("ts-auto-rewrite");
   const preserveFormattingCheckbox = qs('ts-preserve-formatting');
 
-  
-
   undoBtn.style.display = "none" // hide sidebar undoBtn
   applyBtn.style.display = "none" // hide sidebar applyBtn
 
@@ -674,6 +684,28 @@
       hideFloatingPreviewButton();
     }
   });
+
+  // wait readability to load
+  readabilityScript.onload = () => {
+      console.log("Readability loaded");
+      // Inject external extraction script
+      const extractScript = document.createElement('script');
+      extractScript.src = chrome.runtime.getURL('utils/extractMainText.js');
+      document.documentElement.appendChild(extractScript);
+  };
+
+  // Listen for main text from page context
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data.type && event.data.type === 'TONESHIFT_MAIN_TEXT') {
+      mainText = event.data.text;
+      if (mainText) {
+        mainTextAvailable = true;
+        //console.log("Main Text Extracted:", mainText);
+      }
+    }
+  });
+  
 
   // expand the selection to a whole paragraph
   function expandSelectionToParagraph() {
@@ -1250,21 +1282,6 @@
   hideBtn.addEventListener("click", () => {
     hideSideBar()
   });
-  /*
-  document.addEventListener('DOMContentLoaded', () => {
-    const sidebar = document.getElementById('toneshift-sidebar');
-    if (sidebar) {
-      window.addEventListener('click', (event) => {
-        if (event.target !== sidebar && !sidebar.contains(event.target)) {
-          console.log('Click is outside the sidebar. Hiding the sidebar.');
-          hideSideBar()
-        }
-      });
-    } else {
-      console.error('The element with ID "toneshift-sidebar" was not found.');
-    }
-  });
-  */
 
   floatingIcon.addEventListener("click", () => {
     sidebar.style.display = "block";
