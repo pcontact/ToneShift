@@ -10,18 +10,20 @@
   document.documentElement.appendChild(loaderScript);
 
   const hybridScript = document.createElement("script");
+  hybridScript.type = "module"
   hybridScript.src = chrome.runtime.getURL("pageHybrid.js");
   document.documentElement.appendChild(hybridScript);
-
-  // Dynamically add Readability.js
-  const readabilityScript = document.createElement('script');
-  readabilityScript.src = chrome.runtime.getURL('libs/Readability.js');
-  document.head.appendChild(readabilityScript);
+  
+  const extractScript = document.createElement('script');
+  extractScript.src = chrome.runtime.getURL('utils/extractMainText.js');
+  extractScript.onload = () => console.log("Extraction script loaded");
+  document.documentElement.appendChild(extractScript);
 
   // add getRewriteContext.js
    const getRewriteContextModule = await import(chrome.runtime.getURL('utils/getRewriteContext.js'));
+  //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
   
-  // --- Floating icon CSS ---
+   // --- Floating icon CSS ---
   const style = document.createElement("style");
   style.textContent = `
     .ts-modified {
@@ -685,15 +687,6 @@
     }
   });
 
-  // wait readability to load
-  readabilityScript.onload = () => {
-      console.log("Readability loaded");
-      // Inject external extraction script
-      const extractScript = document.createElement('script');
-      extractScript.src = chrome.runtime.getURL('utils/extractMainText.js');
-      document.documentElement.appendChild(extractScript);
-  };
-
   // Listen for main text from page context
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
@@ -701,7 +694,7 @@
       mainText = event.data.text;
       if (mainText) {
         mainTextAvailable = true;
-        //console.log("Main Text Extracted:", mainText);
+        console.log("Main Text Extracted:", mainText);
       }
     }
   });
@@ -776,7 +769,7 @@
   });
 
   // --- Common Preview Function ---
-  function performPreview(selection) {
+  async function performPreview(selection) {
     const selectionText = selection.toString().trim();
     if (!selectionText) {
       outputBox.textContent = "No text selected.";
@@ -810,6 +803,14 @@
       brevity: mapBrevity(brevitySlider.value),
     };
 
+    const pageId = window.location.href
+    const fullPageText = mainText
+    const selectedText = selectionText
+
+    const dummy = await getRewriteContextModule.getRewriteContext(pageId, fullPageText, selectedText);
+    //return
+    const _context = dummy //await getRewriteContextModule.getRewriteContext(pageId, fullPageText, selectedText);
+
     // Send to AI
     window.postMessage(
       {
@@ -817,6 +818,7 @@
         textWithPlaceholders: textWithPlaceholders.trim(),
         textWithoutPlaceholders: selectionText,
         rewriteWithFormat:preserveFormattingCheckbox.checked,
+        context:_context,
         ...settings,
       },
       "*"
