@@ -81,92 +81,102 @@
       gap: 5px; /* Optional: adds space between the button and the icon */
 
     }
-  /* Preview container - minimal padding, accent border */
-  .ts-preview-container {
-    position: relative;
-    margin: 1em 0;                
-    padding: 0;
-    border-radius: 6px;
-    border-left: 4px solid #7c4dff;  /* accent only on left */
-    background: transparent;
-    box-shadow: none;
-    font-family: inherit;
-    color: inherit;
-    display: block;
-    width: 100%;
-  }
+    /* Preview container - minimal padding, accent border */
+    .ts-preview-container {
+      position: relative;
+      margin: 1em 0;                
+      padding: 0;
+      border-radius: 6px;
+      border-left: 4px solid #7c4dff;  /* accent only on left */
+      background: transparent;
+      box-shadow: none;
+      font-family: inherit;
+      color: inherit;
 
-  /* Meta row sits just above the rewritten text */
-  .ts-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0 6px 8px;  /* aligns with highlight offset */
-  }
-
-  /* Badge */
-  .ts-badge {
-    background: #b388ff;
-    color: #121212;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 4px;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-  }
-
-  /* Revert button - always blue */
-  .ts-revert-button {
-    background: #1e88e5;
-    color: #ffffff;
-    border: 1px solid #1565c0;
-    padding: 4px 8px;
-    font-size: 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: 500;
-    transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
-  }
-
-  .ts-revert-button:hover {
-    background: #1565c0;
-    box-shadow: 0 2px 6px rgba(21, 101, 192, 0.4);
-    transform: translateY(-1px);
-  }
-
-  .ts-revert-button:focus {
-    outline: 3px solid rgba(30, 136, 229, 0.4);
-    outline-offset: 2px;
-  }
-
-  /* Inner quoted content */
-  .ts-preview-text-highlight {
-    padding: 12px;
-    border-radius: 4px;
-    line-height: 1.6;
-    font-size: 0.95rem;
-
-    margin-left: 8px;         
-    width: calc(100% - 8px);
-  }
-
-  /* Light mode background */
-  @media (prefers-color-scheme: light) {
-    .ts-preview-text-highlight {
-      background: #f6f2ff;   /* soft lavender tint */
-      color: #2a1b4d;        /* dark violet text for readability */
+      display: flex;
+      flex-direction: column; /* stack meta and highlight vertically */
+      gap: 4px;              /* spacing between meta row and highlight */
     }
-  }
 
-  /* Dark mode background */
-  @media (prefers-color-scheme: dark) {
-    .ts-preview-text-highlight {
-      background: rgba(46, 40, 64, 0.85); 
-      color: #f0eaff;
+    /* Meta row container */
+    .ts-meta {
+      display: flex;
+      justify-content: space-between; /* first item left, last item right */
+      align-items: center;           /* vertical centering */
+      padding: 4px 8px 0 8px;       /* horizontal padding for edges */
+      gap: 0;                        /* remove extra gap */
     }
-  }
+
+    /* Badge - stays on extreme left */
+    .ts-badge {
+      display: inline-flex;          /* shrink to content */
+      align-items: center;           /* vertical center */
+      background: #b388ff;
+      color: #121212;
+      font-size: 8px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      height: auto;                  /* allow padding to control height */
+    }
+
+    /* Revert button - stays on extreme right */
+    .ts-revert-button {
+      display: inline-flex;          
+      align-items: center;           
+      background: #1e88e5;
+      color: #ffffff;
+      border: 1px solid #1565c0;
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      height: auto;                  /* prevent vertical stretching */
+    }
+
+    .ts-revert-button:hover {
+      background: #1565c0;
+      box-shadow: 0 2px 6px rgba(21, 101, 192, 0.4);
+      transform: translateY(-1px);
+    }
+
+    .ts-revert-button:focus {
+      outline: 3px solid rgba(30, 136, 229, 0.4);
+      outline-offset: 2px;
+    }
+
+    /* Inner quoted content */
+    .ts-preview-text-highlight {
+      padding: 12px;
+      border-radius: 4px;
+      line-height: 1.6;
+      font-size: 0.95rem;
+
+      width: 100%;                  /* full width inside flex column */
+      box-sizing: border-box;       /* include padding in width */
+    }
+
+    /* Light mode background */
+    @media (prefers-color-scheme: light) {
+      .ts-preview-text-highlight {
+        background: #f6f2ff;   /* soft lavender tint */
+        color: #2a1b4d;        /* dark violet text for readability */
+      }
+    }
+
+    /* Dark mode background */
+    @media (prefers-color-scheme: dark) {
+      .ts-preview-text-highlight {
+        background: rgba(46, 40, 64, 0.85); 
+        color: #f0eaff;
+      }
+    }
+
+
 
 
     /* Spinner styling */
@@ -458,7 +468,8 @@
   let placeholderMap = {};
   let mapKeyPool = 0
   let rewriteWithFormat = false
-  
+  let latestModeSelect = ""
+
   // Inline preview state
   let isPreviewMode = false;
   let previewRange = null;
@@ -903,6 +914,8 @@
   modeSelect.addEventListener("change", (e) => {
     e.stopPropagation()
     const modeName = modeSelect.value;
+    latestModeSelect = modeName;
+    console.log("Mode changed to:", latestModeSelect);
     const profile = { ...builtInPresets[modeName], ...userProfiles[modeName] };
     if (profile) {
       applyProfile(profile);
@@ -1076,7 +1089,7 @@
       const badge = document.createElement("span");
       badge.className = "ts-badge";
       badge.id = "ai-label";
-      badge.textContent = "";
+      badge.textContent = "AI Refined text" + latestModeSelect;
 
       // Create revert button
       const revertButton = createRevertPreviewBtn();
