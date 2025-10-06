@@ -37,7 +37,7 @@
       right: 20px;
       width: 50px;
       height: 50px;
-      background-color: #007bff;
+      background-color: #261a42ff;
       color: white;
       display: flex;
       align-items: center;
@@ -51,12 +51,12 @@
      /* Floating action button for text selection */
     .ts-floating-preview-btn {
       /*position: absolute;*/
-      background: #007bff;
+      background: #2a1b4d;
       color: white;
       border: none;
       border-radius: 4px;
       padding: 6px 12px;
-      font-size: 12px;
+      font-size: 14px;
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
       z-index: 1000000;
@@ -66,7 +66,7 @@
       white-space: nowrap;
     }
     .ts-floating-preview-btn:hover {
-      background: #0056b3;
+      background: #2a1b4d;
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
@@ -185,7 +185,7 @@
     width: 24px;
     height: 24px;
     border: 4px solid #f3f3f3;
-    border-top: 4px solid #007bff;
+    border-top: 4px solid #b388ff;
     border-radius: 70%;
     animation: ts-spin 0.8s linear infinite;
     z-index: 999999;
@@ -195,19 +195,12 @@
   @keyframes ts-spin {
     to { transform: rotate(360deg); }
   }
-
-    /* Highlighted text while processing */
-    .ts-processing-highlight {
-      background-color: rgba(255, 38, 0, 0.15);
-      outline: 1px solid rgba(255, 38, 0, 0.4);
-    }
   `;
 
   document.head.appendChild(style);
 
   // page main text contents
   let mainText = null
-  let mainTextAvailable = false
 
   // --- Floating icon ---
   const floatingIcon = document.createElement("div");
@@ -256,17 +249,18 @@
         margin: 4px 2px;
         padding: 6px 10px;
         border: none;
-        background: #007bff;
-        color: white;
+        background: #b388ff;
+        font-weight: 500;
+        color: #121212;
         border-radius: 4px;
         cursor: pointer;
       }
-      button:hover { background: #0056b3; }
+      button:hover { background: #b388ff; }
       input[type=range] { width: 100%; }
       hr { margin: 10px 0; }
       #ts-spinner .ts-loader {
         border: 4px solid #f3f3f3;
-        border-top: 4px solid #007bff;
+        border-top: 4px solid #b388ff;
         border-radius: 50%;
         width: 24px;
         height: 24px;
@@ -288,7 +282,7 @@
       #ts-advanced-toggle {
         background: transparent;
         border: 1px solid #007bff;
-        color: #007bff;
+        color: #121212;
         width: 100%;
         margin: 10px 0;
       }
@@ -300,11 +294,11 @@
         border-radius: 6px;
         padding: 10px;
         margin: 5px 0;
-        border-left: 3px solid #007bff;
+        border-left: 3px solid #b388ff;
       }
       #ts-advanced-controls label {
-        font-weight: bold;
-        color: #495057;
+        /*font-weight: bold;*/
+        color: #121212;
       }
 
       .setting-with-tooltip {
@@ -349,7 +343,7 @@
     </style>
 
     <div id="toneshift-sidebar">
-      <h2>ToneShift</h2>
+      <h2>✨ToneShift</h2>
 
       <button id="ts-hide-sidebar">Hide Sidebar</button><br>
       
@@ -360,27 +354,34 @@
         <!-- Options will be populated dynamically -->
       </select>
 
+      <button id="ts-preview" title="Polish your selected text instantly with ToneShift.">Refine</button>
+      <button id="ts-apply">Apply</button>
+      <button id="ts-undo">Undo</button>
+      <button id="ts-reset" title="Remove all applied AI rewritten text from the page.">Reset</button>
+      <hr>
+
       <button id="ts-advanced-toggle">⚙️ Advanced Options</button>
 
       <div id="ts-advanced-controls" style="display: none;">
-        <label>Custom Modes:</label>
+        <label style="font-weight:600">Custom Modes:</label>
         <select id="ts-profile-select"></select><br><br>
+         <hr>
+
+        <label style="font-weight:600">Tone: <span id="ts-tone-value" style="font-weight:300">Neutral</span></label>
+        <input id="ts-tone" type="range" min="0" max="10" value="5"><br>
+        
+        <label style="font-weight:600">Complexity: <span id="ts-complexity-value" style="font-weight:300">Medium</span></label>
+        <input id="ts-complexity" type="range" min="0" max="10" value="5"><br>
+        
+        <label style="font-weight:600">Brevity: <span id="ts-brevity-value" style="font-weight:300">Medium</span></label>
+        <input id="ts-brevity" type="range" min="0" max="10" value="5"><br>
+
+        
         <button id="ts-save-profile">Save Current</button>
         <button id="ts-edit-profile">Edit Selected</button>
         <button id="ts-delete-profile">Delete</button>
-
         <hr>
 
-        <label>Tone: <span id="ts-tone-value">Neutral</span></label>
-        <input id="ts-tone" type="range" min="0" max="10" value="5"><br>
-        
-        <label>Complexity: <span id="ts-complexity-value">Medium</span></label>
-        <input id="ts-complexity" type="range" min="0" max="10" value="5"><br>
-        
-        <label>Brevity: <span id="ts-brevity-value">Medium</span></label>
-        <input id="ts-brevity" type="range" min="0" max="10" value="5"><br>
-
-        <hr><br>
         <h3>Model Settings</h3>
         <div class="setting-with-tooltip">
           <input type="checkbox" id="ts-preserve-formatting">
@@ -393,16 +394,9 @@
         </div>
         <br><br>
 
-        <label for="gemini-cloud-model-toggle">Use Cloud Gemini Model</label>
+        <label for="gemini-cloud-model-toggle" style="font-weight:600">Use Cloud Gemini Model</label>
         <button id="ts-set-key">🔑 Set Gemini API Key</button><br>
       </div>
-
-      <hr>
-
-      <button id="ts-preview" title="Polish your selected text instantly with ToneShift.">Refine</button>
-      <button id="ts-apply">Apply</button>
-      <button id="ts-undo">Undo</button>
-      <button id="ts-reset">Reset</button>
 
       <hr>
 
@@ -690,7 +684,6 @@
           }
         }, 500);
       } else {
-        console.log("hidding the floating button")
         hideFloatingPreviewButton();
       }
     } else {
@@ -704,7 +697,6 @@
     if (event.data.type && event.data.type === 'TONESHIFT_MAIN_TEXT') {
       mainText = event.data.text;
       if (mainText) {
-        mainTextAvailable = true;
         console.log("Main Text Extracted:", mainText);
       }
     }
