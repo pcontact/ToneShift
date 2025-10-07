@@ -478,25 +478,17 @@
 
   // --- Profiles ---
   const builtInPresets = {
-    "Kid Mode": { tone: 2, complexity: 2, brevity: 8 },
-    "No Brain": { tone: 6, complexity: 2, brevity: 8 },
+    Simplify: { tone: 2, complexity: 2, brevity: 8 },
+    "Easy Read": { tone: 6, complexity: 2, brevity: 8 },
     "Casual": { tone: 5, complexity: 5, brevity: 5 },
-    "Lazy": { tone: 2, complexity: 2, brevity: 8 },
-    "Professional": { tone: 8, complexity: 9, brevity: 7 },
-    "Goggy": { tone: 6, complexity: 5, brevity: 6 },
+    "Shorten": { tone: 2, complexity: 2, brevity: 8 },
+    "Formalize": { tone: 8, complexity: 9, brevity: 7 },
+    "Creative": { tone: 6, complexity: 5, brevity: 6 },
     
   };
   let userProfiles = {};
 
-  // Mode display names mapping
-  const modeDisplayNames = {
-    "Kid Mode": "Simplify",
-    "No Brain": "Easy Read",
-    "Casual": "Casual",
-    "Lazy": "Shorten",
-    "Professional": "Formalize", 
-    "Goggy": "Creative"
-  };
+  let allPresets = {...builtInPresets, ...userProfiles}
 
   // --- Text Selection and Floating Button Logic - COMPLETELY REWRITTEN ---
   function showFloatingPreviewButton(range, rect) {
@@ -565,11 +557,6 @@
     revertPreviewBtn.className = "ts-revert-button";
     revertPreviewBtn.title = "Revert to original text";
     revertPreviewBtn.style.display = "block"; // show by default when created
-
-    // Position button rewritten text selection
-    //revertPreviewBtn.style.top = (rect.top + window.scrollY + 10) + 'px';
-    //revertPreviewBtn.style.right = (rect.right + window.scrollX) + 'px';
-
     return revertPreviewBtn;
   }
 
@@ -737,6 +724,12 @@
       const selection = window.getSelection();
       //selection.removeAllRanges();
       //selection.addRange(floatingButtonState.range.cloneRange());
+      //const range = selection.getRangeAt(0).cloneRange();
+      //const originalContent = range.cloneContents();
+      //const mapKey = getMapKey();
+      //rewriteMap[mapKey] = {range:range, originalContent:originalContent}
+      
+      //console.log(rewriteMap)
       
       // Use the same preview logic
       performPreview(selection);
@@ -806,6 +799,8 @@
       brevity: mapBrevity(brevitySlider.value),
     };
 
+    const currentModeName = ""
+
     const pageId = window.location.href
     const fullPageText = mainText
     const selectedText = selectionText
@@ -826,24 +821,29 @@
       },
       "*"
     );
+
+    setTimeout(() => {
+      createModePresetCard(selection);
+    }, 10);
+
   }
 
   // --- Profile Loading - FIXED: Properly include user profiles ---
   async function loadProfiles() {
     const data = await chrome.storage.local.get("profiles");
     userProfiles = data.profiles || {};
+    allPresets = {...builtInPresets, ...userProfiles}
     
     // Clear and rebuild both dropdowns
     customModeSelect.innerHTML = "";
     modeSelect.innerHTML = "";
-    
+
     // Add built-in presets to both dropdowns
     Object.keys(builtInPresets).forEach(name => {
       // Add to custom mode dropdown
       /*
       const profileOption = document.createElement("option");
       profileOption.value = name;
-      profileOption.textContent = modeDisplayNames[name] || name;
       customModeSelect.appendChild(profileOption);
       */
       
@@ -851,7 +851,7 @@
       const modeOption = document.createElement("option");
       modeOption.id = "ts-mode-option"
       modeOption.value = name;
-      modeOption.textContent = modeDisplayNames[name] || name;
+      modeOption.textContent = name;
       modeSelect.appendChild(modeOption);
     });
     
@@ -899,7 +899,7 @@
 
   // Initialize with default profile
   loadProfiles().then(() => {
-    applyProfile(builtInPresets["Kid Mode"]);
+    applyProfile(builtInPresets["Simplify"]);
   });
 
   // --- Mode Select Event Listener ---
@@ -1008,7 +1008,10 @@
       lastAIResponse = convertOmittedPlaceHolders(lastAIResponse);
 
       if (isPreviewMode) {
-        applyInlinePreview(lastAIResponse);
+        const rewrittenText = reconstructHTML(lastAIResponse)
+        buildOutputDisplayUI(rewrittenText, customModeSelect.value)
+
+        //applyInlinePreview(lastAIResponse);
         isPreviewMode = false;
       } else {
         outputBox.textContent = lastAIResponse;
@@ -1033,18 +1036,10 @@
     }
   });
 
-  // --- Enhanced Inline Preview Functions - FIXED ---
-  function applyInlinePreview(aiResponse) {
-    if (!previewRange || !previewOriginalContent) {
-      console.error("No preview range or content available");
-      return;
-    }
 
-    try {
-      //clearInlinePreview();
-      hideFloatingPreviewButton()
-
-      // Use the same reconstruction logic as the Apply button
+  function reconstructHTML(aiResponse){
+    // Use the same reconstruction logic as the Apply button
+    // Use the same reconstruction logic as the Apply button
       let reconstructedHTML = aiResponse;
       const tagRegex = /_TS_TAG_(\d+)_START\[(.*?)\]_TS_TAG_\1_END/g;
 
@@ -1066,6 +1061,18 @@
       // Clean up any stray placeholders
       reconstructedHTML = reconstructedHTML.replace(/_TS_TAG_\d+_START\[?/g, "");
       reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
+      return reconstructedHTML;
+  }
+  // --- Enhanced Inline Preview Functions - FIXED ---
+  function applyInlinePreview(rewrittenText) {
+    if (!previewRange || !previewOriginalContent) {
+      console.error("No preview range or content available");
+      return;
+    }
+
+    try {
+      //clearInlinePreview();
+      hideFloatingPreviewButton()
 
       // Create preview container
       const previewContainer = document.createElement("aside");
@@ -1110,7 +1117,7 @@
       metaRow.appendChild(revertButton);
 
       // Create text container
-      const fragment = document.createRange().createContextualFragment(reconstructedHTML);
+      const fragment = document.createRange().createContextualFragment(rewrittenText);
       const textContainer = document.createElement("div");
       textContainer.className = "ts-preview-text-highlight";
       textContainer.appendChild(fragment);
@@ -1128,6 +1135,8 @@
 
       currentPreviewElement = previewContainer;
       console.log("Inline preview applied with HTML reconstruction");
+      
+      return mapKey // return the key for this inline in the rewriteMapKey
 
     } catch (error) {
       console.error("Error applying inline preview:", error);
@@ -1135,25 +1144,24 @@
     }
   }
 
-  function revertInlinePreview() {
-    if (!previewRange || !previewOriginalContent) return;
+  function revertInlinePreview(mapKey, removeEntry=false) {
+    const { range, originalNodes } = rewriteMap[mapKey];
 
-    try {
-      clearInlinePreview();
+    if (!range || ! originalNodes){
+      console.error("Error reverting inline preview:", error);
+      return
+    } 
 
-      // Use the same restoration logic as the Undo button
-      previewRange.deleteContents();
-      const restored = previewOriginalContent.cloneNode(true);
-      previewRange.insertNode(restored);
+    range.deleteContents();
+    const restored = originalNodes.cloneNode(true);
+    range.insertNode(restored);
 
-      // Clear state
+    // Cleanup state
+    if(removeEntry){
+      delete rewriteMap[mapKey];
       previewRange = null;
       previewOriginalContent = null;
       isPreviewMode = false;
-
-      console.log("Inline preview reverted with proper DOM restoration");
-    } catch (error) {
-      console.error("Error reverting inline preview:", error);
     }
   }
 
@@ -1533,5 +1541,478 @@
 
   // Initialize slider values display
   updateSliderValues();
+
+  // ===================== Create Floating "Refine" Microcard =================================
+
+  // == global variable used among functions
+  let originalText = ""
+  let refineMicroCard = null
+  let rewrittenText = ""
+  let microcardRewrittenEl = document.createElement("div")
+  let microcardOriginalEl = document.createElement("div")
+
+async function createModePresetCard(originalTextOrSelection) {
+  originalText = "This is a sample text to refine.";
+  let rect = null;
+
+  // Check if a Selection object was passed
+  if (originalTextOrSelection && originalTextOrSelection.toString) {
+    const selection = originalTextOrSelection;
+    originalText = selection.toString().trim() || originalText;
+    if (selection.rangeCount > 0) {
+      rect = selection.getRangeAt(0).getBoundingClientRect();
+    }
+  } else if (typeof originalTextOrSelection === "string") {
+    originalText = originalTextOrSelection;
+  }
+  console.log("Creating mode preset card for text:", originalText.substring(0, 30) + "...");
+
+  const card = document.createElement("div");
+  card.className = "tsMicrocard";
+  document.body.appendChild(card);
+  refineMicroCard = card; // store reference for later usage/removal
+
+  //const lastUsed = localStorage.getItem("tsLastMode");
+  const { tsLastMode: lastUsed } = await chrome.storage.local.get("tsLastMode");
+
+
+  if (lastUsed) {
+    showSpinnerThenRewrite(card, originalText, lastUsed);
+  } else {
+    buildModeSelectionUI(card, originalText);
+  }
+
+  // === Positioning Logic === //
+  if (rect && rect.width > 0) {
+    console.log("Positioning card near selection:", rect);
+    const scrollY = window.scrollY || document.documentElement.scrollTop;
+    const scrollX = window.scrollX || document.documentElement.scrollLeft;
+    const top = rect.top + scrollY - 10;
+    const left = rect.left + scrollX + rect.width / 2;
+    card.style.top = `${top}px`;
+    card.style.left = `${left}px`;
+    card.style.transform = "translate(-50%, -100%)";
+  } else {
+    // Fallback center position
+    card.style.top = "40%";
+    card.style.left = "50%";
+    card.style.transform = "translate(-50%, -50%)";
+  }
+
+  // Track anchor position
+  const anchorY = rect ? rect.top + window.scrollY : window.innerHeight * 0.4;
+
+  // Fade-out function
+  function gracefullyRemoveCard() {
+    if (!card.isConnected) return;
+    cleanupListeners();
+    card.style.transition = 'opacity 0.3s ease';
+    card.style.opacity = '0';
+    setTimeout(() => {
+      if (card.isConnected) card.remove();
+    }, 300);
+  }
+
+
+  // Scroll listener: fade out if scrolled 300px away
+  function handleScroll() {
+    const currentY = window.scrollY;
+    if (Math.abs(currentY - anchorY) > 300) {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('selectionchange', handleSelection);
+      gracefullyRemoveCard();
+    }
+  }
+
+  // Selection listener: fade out on new highlight
+  function handleSelection() {
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim().length > 0) {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('selectionchange', handleSelection);
+      gracefullyRemoveCard();
+    }
+  }
+  // Click-outside listener: fade out when user clicks anywhere not inside the card
+  function handleClickOutside(event) {
+    if (!card.contains(event.target)) {
+      cleanupListeners();
+      gracefullyRemoveCard();
+    }
+  }
+  document.addEventListener("mousedown", handleClickOutside);
+
+  window.addEventListener('scroll', handleScroll);
+  document.addEventListener('selectionchange', handleSelection);
+
+  // 🧹 Centralized cleanup function
+  function cleanupListeners() {
+    window.removeEventListener("scroll", handleScroll);
+    document.removeEventListener("selectionchange", handleSelection);
+    document.removeEventListener("mousedown", handleClickOutside);
+  }
+
+}
+
+  // === Build Mode Selection UI === //
+  async function buildModeSelectionUI(card, originalText) {
+    card.innerHTML = "";
+
+    const chipContainer = document.createElement("div");
+    chipContainer.className = "tsChipContainer";
+
+    const modes = Object.keys(allPresets)
+    //const lastUsed = localStorage.getItem("tsLastMode");
+    const { tsLastMode: lastUsed } = await chrome.storage.local.get("tsLastMode");
+    modes.forEach((mode) => {
+      const chip = document.createElement("button");
+      chip.className = "tsChip";
+      chip.textContent = mode;
+      if (mode === lastUsed) chip.classList.add("tsActive");
+      chip.onclick = () => handleModeClick(mode, chip, card, originalText);
+      chipContainer.appendChild(chip);
+    });
+
+    const spinner = document.createElement("div");
+    spinner.className = "tsSpinner";
+    spinner.textContent = "Adjusting for your mode…";
+    spinner.style.display = "none";
+
+    card.append(chipContainer, spinner);
+  }
+
+  async function buildModeSelectionCard(card, originalText) {
+    const chipContainer = document.createElement("div");
+    chipContainer.className = "tsChipContainer";
+
+    const modes = Object.keys(allPresets)
+    //const lastUsed = localStorage.getItem("tsLastMode");
+    const { tsLastMode: lastUsed } = await chrome.storage.local.get("tsLastMode");
+    modes.forEach((mode) => {
+      const chip = document.createElement("button");
+      chip.className = "tsChip";
+      chip.textContent = mode;
+      if (mode === lastUsed) chip.classList.add("tsActive");
+      chip.onclick = () => handleModeClick(mode, chip, card, originalText);
+      chipContainer.appendChild(chip);
+    });
+
+    const chip = document.createElement("button");
+    chip.className = "tsChip";
+    chip.textContent = "x";
+    chip.onclick = (() => {
+      chipContainer.style.display = "none";
+    })
+    chipContainer.appendChild(chip)
+    return chipContainer
+  }
+  
+
+  // === Handle Mode Selection === //
+  async function handleModeClick(mode, chip, card, originalText) {
+    //localStorage.setItem("tsLastMode", mode);
+    await chrome.storage.local.set({ tsLastMode: mode });
+    const profile = allPresets[mode];
+    applyProfile(profile)
+
+    const allChips = card.querySelectorAll(".tsChip");
+    allChips.forEach((c) => c.classList.remove("tsActive"));
+    chip.classList.add("tsActive");
+
+    const spinner = card.querySelector(".tsSpinner");
+    spinner.style.display = "block";
+    //performPreview()
+
+    microcardRewrittenEl.textContent = "";
+    return
+
+    setTimeout(() => {
+      spinner.style.display = "none";
+      const rewritten = generateFakeRewrite(originalText, mode);
+      buildOutputDisplayUI(card, originalText, rewritten, mode);
+    }, Math.random() * 2000 + 500);
+  }
+
+  // === Show Spinner (Skip Mode Selection Path) === //
+  function showSpinnerThenRewrite(card, originalText, mode) {
+    card.innerHTML = "";
+    const spinner = document.createElement("div");
+    spinner.className = "tsSpinner";
+
+    const spinnerText = {
+      Simplify: "Simplifying text…",
+      "Easy Read": "Making it easier to read…",
+      Formal: "Formalizing text…",
+      Creative: "Rewriting creatively…",
+      Concise: "Condensing text…",
+    }[mode] || "Adjusting text…";
+
+    spinner.textContent = spinnerText;
+    card.appendChild(spinner);
+
+    return
+    setTimeout(() => {
+      const rewritten = generateFakeRewrite(originalText, mode);
+      buildOutputDisplayUI(card, originalText, rewritten, mode);
+    }, Math.random() * 2000 + 500);
+  }
+
+  // === Generate Fake Rewrite (placeholder for AI) === //
+  function generateFakeRewrite(text, mode) {
+    const variants = {
+      Simplify: text.replace(/sample/, "simple") + " (simplified)",
+      "Easy Read": text + " It's now easier to read and clearer.",
+      Formal: text.replace("sample", "demonstrative") + " — formally adjusted.",
+      Creative: text + " The sentence now has a touch of creativity.",
+      Concise: text.replace("This is a sample text to refine.", "Refined text."),
+    };
+    return variants[mode] || text + " (refined)";
+  }
+
+  
+// === Build Output Display (Original + Rewritten + Actions) === //
+function buildOutputDisplayUI(rewrittenText, mode) {
+  let rMKN = document.createElement("span"); // simple node used to store rewriteMapKey returned by applyInlinePreview
+                                            // the id property is used.
+
+  rewrittenText = rewrittenText
+  const card = refineMicroCard;
+  card.innerHTML = "";
+
+  const outputContainer = document.createElement("div");
+  outputContainer.className = "tsOutputContainer";
+
+  const originalEl = document.createElement("div");
+  originalEl.className = "tsOriginalText";
+  originalEl.textContent = originalText;
+   originalEl.onclick = () => {
+    originalEl.classList.toggle("expanded");
+  };
+  microcardOriginalEl = originalEl;
+
+  const rewrittenEl = document.createElement("div");
+  rewrittenEl.className = "tsRewrittenText";
+  rewrittenEl.textContent = rewrittenText;
+  microcardRewrittenEl = rewrittenEl
+
+  const caption = document.createElement("div");
+  caption.className = "tsCaption";
+  caption.textContent = mode
+    ? `${mode} version — Local AI`
+    : "AI generated (local).";
+
+  const actionBar = document.createElement("div");
+  actionBar.className = "tsActionBar";
+
+  const btnReplace = createActionButton("Replace", () =>
+    handleReplace(originalEl, rewrittenEl, rMKN)
+  );
+  const btnUndo = createActionButton("Undo", () =>
+    handleUndo()
+  );
+  btnUndo.style.display="none" // hide the undo button. we don't need it since the microcard fades-out on replace with rewritten text
+  undoReplaceButton = btnUndo
+
+  const btnChange = createActionButton("Change Mode", () =>
+    buildModeSelectionUI(card, originalText)
+  );
+  actionBar.append(btnReplace, btnUndo, btnChange);
+
+  // Create close ("X") button positioned at the top-right
+  const btnClose = document.createElement('button');
+  btnClose.className = 'tsCloseButton';
+  btnClose.textContent = '×';
+  btnClose.onclick = () => {
+    card.style.transition = 'opacity 0.3s ease';
+    card.style.opacity = '0';
+    setTimeout(() => card.remove(), 300);
+  };
+
+  // Append to card
+  card.prepend(btnClose);
+
+  outputContainer.append(originalEl, rewrittenEl, caption, actionBar);
+  card.appendChild(outputContainer);
+}
+
+function easeOutMicroCard(){
+    refineMicroCard.style.transition = 'opacity 0.3s ease';
+    refineMicroCard.style.opacity = '0';
+    setTimeout(() => {
+      refineMicroCard.remove()
+    }, 300);
+  }
+
+  // === Action Handlers === //
+  function createActionButton(label, handler) {
+    const btn = document.createElement("button");
+    btn.className = "tsActionButton";
+    btn.textContent = label;
+    btn.onclick = handler;
+    return btn;
+  }
+
+  function handleReplace(originalEl, rewrittenEl, rMKN) {
+    rMKN.id = applyInlinePreview(rewrittenEl.textContent)
+    easeOutMicroCard()
+    return
+    originalEl.textContent = rewrittenEl.textContent;
+    originalEl.style.opacity = "1";
+    originalEl.style.background = "lightyellow";
+    rewrittenEl.style.display = "none";
+    setTimeout(() => {
+      originalEl.style.background = "none";
+    }, 1500);
+  }
+
+  function handleUndo(rewriteMapKey=null) {
+    if(typeof rewriteMapKey !== "string") return
+    revertInlinePreview(rewriteMapKey)
+  }
+
+  // === Inject Styles === //
+  const floatingRefinePopupStyle = document.createElement("style");
+  floatingRefinePopupStyle.textContent = `
+  
+  
+  .tsMicrocard {
+    position: fixed; /* stays fixed on screen */
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    padding: 16px;
+    z-index: 1000;
+    font-family: sans-serif;
+    width: 320px;
+    transition: opacity 0.2s ease;
+    overflow: hidden;
+  }
+
+  .tsCloseButton {
+    position: absolute; /* positions relative to the card box */
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 18px;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s ease;
+    margin-botton:4px;
+  }
+
+  .tsCloseButton:hover {
+    color: #333;
+  }
+
+  .tsChipContainer {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .tsChip {
+    background: #f0f0f0;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .tsChip:hover { background: #e0e0e0; }
+  .tsChip.tsActive { background: #007bff; color: white; }
+
+  .tsSpinner {
+    text-align: center;
+    color: #555;
+    font-size: 14px;
+    padding: 12px 0;
+  }
+
+  .tsOutputContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tsOriginalText {
+    opacity: 0.5;
+    font-size: 14px;
+    border-bottom: 1px dashed #ccc;
+    padding-bottom: 6px;
+    max-height: 6.5em; /* ~5 lines */
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    transition: max-height 0.3s ease;
+    margin-bottom: 6px;
+    margin-top: 20px;
+  }
+
+  .tsOriginalText::after {
+    content: "Show more";
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(to left, white 50%, transparent);
+    color: #007bff;
+    font-size: 12px;
+    padding-left: 20px;
+    cursor: pointer;
+  }
+
+  .tsOriginalText.expanded {
+    max-height: none;
+  }
+
+  .tsOriginalText.expanded::after {
+    content: "Show less";
+  }
+
+
+  .tsRewrittenText {
+    opacity: 1;
+    font-size: 15px;
+  }
+
+  .tsCaption {
+    font-size: 12px;
+    color: #666;
+    text-align: right;
+  }
+
+  .tsActionBar {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+  }
+
+  .tsActionButton {
+    background: #f0f0f0;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-size: 13px;
+  }
+
+  .tsActionButton:hover { background: #e0e0e0; }
+
+  .tsOriginalText,
+  .tsRewrittenText {
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #fafafa;
+  }
+  `;
+  document.head.appendChild(floatingRefinePopupStyle);
+
+  //createModePresetCard()
 
 })();
