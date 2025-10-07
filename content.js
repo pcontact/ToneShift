@@ -585,12 +585,11 @@
    * @param {Selection} selection - window.getSelection()
    * @param {Boolean} enable - true = show, false = hide
    */
-  function toggleSpinner(selection, enable) {
+  function toggleSpinner(range, enable) {
     if (enable) {
-      if (!selection || selection.rangeCount === 0) return;
+      if (!range) return;
 
       // Capture the range so we can keep tracking after deselection
-      const range = selection.getRangeAt(0).cloneRange();
       trackedRect = range; // store persistent Range
 
       spinnerActive = true;
@@ -724,15 +723,16 @@
       const selection = window.getSelection();
       //selection.removeAllRanges();
       //selection.addRange(floatingButtonState.range.cloneRange());
-      //const range = selection.getRangeAt(0).cloneRange();
-      //const originalContent = range.cloneContents();
-      //const mapKey = getMapKey();
-      //rewriteMap[mapKey] = {range:range, originalContent:originalContent}
+      const range = selection.getRangeAt(0).cloneRange();
+      const originalContent = range.cloneContents();
+      const mapKey = getMapKey();
+      rewriteMap[mapKey] = {range:range, originalContent:originalContent}
       
-      //console.log(rewriteMap)
+      console.log(rewriteMap)
       
+      isPreviewMode = true
       // Use the same preview logic
-      performPreview(selection);
+      performPreview(mapKey);
       hideFloatingPreviewButton();
     } else {
       console.error("No preview range available");
@@ -765,7 +765,9 @@
   });
 
   // --- Common Preview Function ---
-  async function performPreview(selection) {
+  async function performPreview(rewriteMapKey) {
+    const selection = rewriteMap[rewriteMapKey].range
+
     const selectionText = selection.toString().trim();
     if (!selectionText) {
       outputBox.textContent = "No text selected.";
@@ -778,9 +780,9 @@
     //clearInlinePreview();
 
     // Store selection info for inline preview
-    isPreviewMode = true;
-    previewRange = selection.getRangeAt(0).cloneRange();
-    previewOriginalContent = previewRange.cloneContents();
+    //isPreviewMode = true;
+    //previewRange = selection.getRangeAt(0).cloneRange();
+    //previewOriginalContent = previewRange.cloneContents();
     
 
     toggleSpinner(selection, true)
@@ -791,15 +793,13 @@
     placeholderMap = {};
 
     // Build text with placeholders
-    const textWithPlaceholders = replaceNodes(selection.getRangeAt(0).cloneContents());
+    const textWithPlaceholders = replaceNodes(selection);
 
     const settings = {
       tone: mapTone(toneSlider.value),
       complexity: mapComplexity(complexitySlider.value),
       brevity: mapBrevity(brevitySlider.value),
     };
-
-    const currentModeName = ""
 
     const pageId = window.location.href
     const fullPageText = mainText
@@ -823,7 +823,7 @@
     );
 
     setTimeout(() => {
-      createModePresetCard(selection);
+      createModePresetCard(selection, rewriteMapKey);
     }, 10);
 
   }
@@ -1064,9 +1064,9 @@
       return reconstructedHTML;
   }
   // --- Enhanced Inline Preview Functions - FIXED ---
-  function applyInlinePreview(rewrittenText) {
-    if (!previewRange || !previewOriginalContent) {
-      console.error("No preview range or content available");
+  function applyInlinePreview(rewrittenText, rewriteMapKey) {
+    if (!rewriteMapKey) {
+      console.error("No rewriteMapKey provided for inline preview.");
       return;
     }
 
@@ -1092,7 +1092,7 @@
 
       // Create revert button
       const revertButton = createRevertPreviewBtn();
-      const mapKey = getMapKey();
+      const mapKey = rewriteMapKey;
       revertButton.id = mapKey;
       revertButton.textContent = "Back to original text";
       revertButton.classList.add("ts-revert-button");
@@ -1100,15 +1100,16 @@
       // Handle revert click
       revertButton.addEventListener("click", (e) => {
         e.stopPropagation();
-        const { range, originalNodes } = rewriteMap[revertButton.id];
+        const { range, originalContent } = rewriteMap[mapKey];
         range.deleteContents();
-        const restored = originalNodes.cloneNode(true);
+        console.log(originalContent)
+        const restored = originalContent.cloneNode(true);
         range.insertNode(restored);
 
         // Cleanup state
-        delete rewriteMap[revertButton.id];
-        previewRange = null;
-        previewOriginalContent = null;
+        delete rewriteMap[mapKey];
+        //previewRange = null;
+        //previewOriginalContent = null;
         isPreviewMode = false;
       });
 
@@ -1128,10 +1129,11 @@
 
 
       // Replace the content
-      undoStack.push({range:previewRange, originalNodes:previewOriginalContent})
-      rewriteMap[mapKey] = {range:previewRange, originalNodes:previewOriginalContent}
-      previewRange.deleteContents();
-      previewRange.insertNode(previewContainer);
+      const {range, originalNodes} = rewriteMap[rewriteMapKey]
+      undoStack.push({range:range, originalNodes:originalNodes})
+      //rewriteMap[mapKey] = {range:previewRange, originalNodes:previewOriginalContent}
+      range.deleteContents();
+      range.insertNode(previewContainer);
 
       currentPreviewElement = previewContainer;
       console.log("Inline preview applied with HTML reconstruction");
@@ -1550,10 +1552,18 @@
   let rewrittenText = ""
   let microcardRewrittenEl = document.createElement("div")
   let microcardOriginalEl = document.createElement("div")
+  let microcardRewriteMapKey = null
 
-async function createModePresetCard(originalTextOrSelection) {
+async function createModePresetCard(originalTextOrSelection, rewriteMapKey) {
   originalText = "This is a sample text to refine.";
   let rect = null;
+
+  if(!rewriteMapKey){
+    console.error("No rewriteMapKey provided to createModePresetCard");
+    return
+  }
+
+  microcardRewriteMapKey = rewriteMapKey;
 
   // Check if a Selection object was passed
   if (originalTextOrSelection && originalTextOrSelection.toString) {
@@ -1652,6 +1662,8 @@ async function createModePresetCard(originalTextOrSelection) {
     document.removeEventListener("mousedown", handleClickOutside);
   }
 
+  return card
+
 }
 
   // === Build Mode Selection UI === //
@@ -1707,7 +1719,6 @@ async function createModePresetCard(originalTextOrSelection) {
     return chipContainer
   }
   
-
   // === Handle Mode Selection === //
   async function handleModeClick(mode, chip, card, originalText) {
     //localStorage.setItem("tsLastMode", mode);
@@ -1719,18 +1730,12 @@ async function createModePresetCard(originalTextOrSelection) {
     allChips.forEach((c) => c.classList.remove("tsActive"));
     chip.classList.add("tsActive");
 
-    const spinner = card.querySelector(".tsSpinner");
-    spinner.style.display = "block";
-    //performPreview()
+    //const spinner = card.querySelector(".tsSpinner");
+    //spinner.style.display = "block";
+    performPreview(microcardRewriteMapKey)
 
     microcardRewrittenEl.textContent = "";
     return
-
-    setTimeout(() => {
-      spinner.style.display = "none";
-      const rewritten = generateFakeRewrite(originalText, mode);
-      buildOutputDisplayUI(card, originalText, rewritten, mode);
-    }, Math.random() * 2000 + 500);
   }
 
   // === Show Spinner (Skip Mode Selection Path) === //
@@ -1771,7 +1776,8 @@ async function createModePresetCard(originalTextOrSelection) {
 
   
 // === Build Output Display (Original + Rewritten + Actions) === //
-function buildOutputDisplayUI(rewrittenText, mode) {
+async function buildOutputDisplayUI(rewrittenText, mode) {
+
   let rMKN = document.createElement("span"); // simple node used to store rewriteMapKey returned by applyInlinePreview
                                             // the id property is used.
 
@@ -1781,6 +1787,10 @@ function buildOutputDisplayUI(rewrittenText, mode) {
 
   const outputContainer = document.createElement("div");
   outputContainer.className = "tsOutputContainer";
+  if(outputContainer.isConnected){
+   const rewrittenEl =  document.querySelector(".tsRewrittenText")
+   rewrittenEl.textContent = rewrittenText
+  }
 
   const originalEl = document.createElement("div");
   originalEl.className = "tsOriginalText";
@@ -1805,7 +1815,7 @@ function buildOutputDisplayUI(rewrittenText, mode) {
   actionBar.className = "tsActionBar";
 
   const btnReplace = createActionButton("Replace", () =>
-    handleReplace(originalEl, rewrittenEl, rMKN)
+    handleReplace(rewrittenText)
   );
   const btnUndo = createActionButton("Undo", () =>
     handleUndo()
@@ -1816,7 +1826,9 @@ function buildOutputDisplayUI(rewrittenText, mode) {
   const btnChange = createActionButton("Change Mode", () =>
     buildModeSelectionUI(card, originalText)
   );
-  actionBar.append(btnReplace, btnUndo, btnChange);
+
+  const modeSelectionCard = await buildModeSelectionCard(refineMicroCard, originalText)
+  actionBar.append(modeSelectionCard,btnReplace, btnUndo, btnChange);
 
   // Create close ("X") button positioned at the top-right
   const btnClose = document.createElement('button');
@@ -1852,17 +1864,9 @@ function easeOutMicroCard(){
     return btn;
   }
 
-  function handleReplace(originalEl, rewrittenEl, rMKN) {
-    rMKN.id = applyInlinePreview(rewrittenEl.textContent)
+  function handleReplace(rewrittenText) {
+    applyInlinePreview(rewrittenText, microcardRewriteMapKey)
     easeOutMicroCard()
-    return
-    originalEl.textContent = rewrittenEl.textContent;
-    originalEl.style.opacity = "1";
-    originalEl.style.background = "lightyellow";
-    rewrittenEl.style.display = "none";
-    setTimeout(() => {
-      originalEl.style.background = "none";
-    }, 1500);
   }
 
   function handleUndo(rewriteMapKey=null) {
@@ -1873,146 +1877,151 @@ function easeOutMicroCard(){
   // === Inject Styles === //
   const floatingRefinePopupStyle = document.createElement("style");
   floatingRefinePopupStyle.textContent = `
-  
-  
-  .tsMicrocard {
-    position: fixed; /* stays fixed on screen */
-    background: white;
-    border: 1px solid #ccc;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    padding: 16px;
-    z-index: 1000;
-    font-family: sans-serif;
-    width: 320px;
-    transition: opacity 0.2s ease;
-    overflow: hidden;
-  }
+    .tsMicrocard {
+      position: fixed; /* stays fixed on screen */
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      padding: 16px;
+      z-index: 1000;
+      font-family: sans-serif;
+      width: 320px;
+      transition: opacity 0.2s ease;
+      overflow: hidden;
+    }
 
-  .tsCloseButton {
-    position: absolute; /* positions relative to the card box */
-    top: 8px;
-    right: 10px;
-    background: none;
-    border: none;
-    color: #888;
-    font-size: 18px;
-    cursor: pointer;
-    line-height: 1;
-    transition: color 0.2s ease;
-    margin-botton:4px;
-  }
+    .tsCloseButton {
+      position: absolute; /* positions relative to the card box */
+      top: 8px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.2s ease;
+      margin-botton:4px;
+    }
 
-  .tsCloseButton:hover {
-    color: #333;
-  }
+    .tsCloseButton:hover {
+      color: #333;
+    }
 
-  .tsChipContainer {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-  }
+    .tsChipContainer {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
 
-  .tsChip {
-    background: #f0f0f0;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 20px;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
+    .tsChip {
+      background: #f0f0f0;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
 
-  .tsChip:hover { background: #e0e0e0; }
-  .tsChip.tsActive { background: #007bff; color: white; }
+    .tsChip:hover { background: #e0e0e0; }
+    .tsChip.tsActive { background: #007bff; color: white; }
 
-  .tsSpinner {
-    text-align: center;
-    color: #555;
-    font-size: 14px;
-    padding: 12px 0;
-  }
+    .tsSpinner {
+      text-align: center;
+      color: #555;
+      font-size: 14px;
+      padding: 12px 0;
+    }
 
-  .tsOutputContainer {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
+    .tsOutputContainer {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
 
-  .tsOriginalText {
-    opacity: 0.5;
-    font-size: 14px;
-    border-bottom: 1px dashed #ccc;
-    padding-bottom: 6px;
-    max-height: 6.5em; /* ~5 lines */
-    overflow: hidden;
-    position: relative;
-    cursor: pointer;
-    transition: max-height 0.3s ease;
-    margin-bottom: 6px;
-    margin-top: 20px;
-  }
+    .tsOriginalText {
+      opacity: 0.5;
+      font-size: 14px;
+      border-bottom: 1px dashed #ccc;
+      padding-bottom: 6px;
+      max-height: 6.5em; /* ~5 lines */
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      transition: max-height 0.3s ease;
+      margin-bottom: 6px;
+      margin-top: 20px;
+    }
 
-  .tsOriginalText::after {
-    content: "Show more";
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    background: linear-gradient(to left, white 50%, transparent);
-    color: #007bff;
-    font-size: 12px;
-    padding-left: 20px;
-    cursor: pointer;
-  }
+    .tsOriginalText::after {
+      content: "Show more";
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      background: linear-gradient(to left, white 50%, transparent);
+      color: #007bff;
+      font-size: 12px;
+      padding-left: 20px;
+      cursor: pointer;
+    }
 
-  .tsOriginalText.expanded {
-    max-height: none;
-  }
+    .tsOriginalText.expanded {
+      max-height: none;
+    }
 
-  .tsOriginalText.expanded::after {
-    content: "Show less";
-  }
+    .tsOriginalText.expanded::after {
+      content: "Show less";
+    }
 
 
-  .tsRewrittenText {
-    opacity: 1;
-    font-size: 15px;
-  }
+    .tsRewrittenText {
+      opacity: 1;
+      font-size: 15px;
+    }
 
-  .tsCaption {
-    font-size: 12px;
-    color: #666;
-    text-align: right;
-  }
+    .tsCaption {
+      font-size: 12px;
+      color: #666;
+      text-align: right;
+    }
 
-  .tsActionBar {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 8px;
-  }
+    .tsActionBar {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
 
-  .tsActionButton {
-    background: #f0f0f0;
-    border: none;
-    border-radius: 6px;
-    padding: 5px 10px;
-    cursor: pointer;
-    transition: background 0.2s;
-    font-size: 13px;
-  }
+    .tsActionButton {
+      background: #f0f0f0;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-size: 13px;
+    }
 
-  .tsActionButton:hover { background: #e0e0e0; }
+    .tsActionButton:hover { background: #e0e0e0; }
 
-  .tsOriginalText,
-  .tsRewrittenText {
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 8px;
-    padding: 8px 10px;
-    background: #fafafa;
-  }
+    .tsOriginalText,
+    .tsRewrittenText {
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fafafa;
+    }
   `;
   document.head.appendChild(floatingRefinePopupStyle);
 
   //createModePresetCard()
+  function showMicroCard(originalTextOrSelection="No text selected. Select a text to start",
+     rewriteMapKey){
+    const card = createModePresetCard(originalTextOrSelection, rewriteMapKey)
+    if (originalTextOrSelection && rewriteMapKey){
+      //buildOutputDisplayUI()
+    }
+  }
 
 })();
