@@ -110,29 +110,157 @@ export function buildPromptContextAwareRewrite(
   return `
 You are an AI text editor. Rewrite the user-selected section according to these settings:
 
+// --- Prompt builder ---
+function buildPrompt(text, tone, complexity, brevity) {
+  return `
+You are an AI text editor. Rewrite the text below according to the user’s settings.
+
+User Settings:
+- Tone: ${tone}
+- Complexity: ${complexity}
+- Brevity: ${brevity}
+
+Rules for Rewriting:
+1. Follow the tone precisely.
+2. Adjust vocabulary and sentence structure to match complexity.
+3. Match verbosity or conciseness based on brevity.
+4. Keep meaning accurate — don’t add new information.
+5. Produce polished, natural-sounding text.
+
+Rules for Placeholders:
+- Placeholders are marked as:  _TS_TAG_X_START[original text]_TS_TAG_X_END
+- The text inside [ ... ] is the part directly affected by the placeholder tag.
+- You may move the placeholder and its text within the sentence if needed for natural flow, but always keep the START and END markers around the same text span.
+- Never delete or duplicate a placeholder.
+- Do not alter the placeholder markers (_TS_TAG_X_START / _TS_TAG_X_END).
+- You may rewrite the text inside [ ... ] for tone, complexity, or brevity, but its semantic role must remain the same.
+
+Text to rewrite:
+${text}
+`;
+}
+
+
+  // --- Chrome Nano ---
+  async function tryChromeAI(promptText) {
+    if (!(window.ai && window.ai.languageModel)) return null;
+
+    try {
+      console.log("Using Chrome built-in AI (Nano)...");
+      const session = await window.ai.languageModel.create({
+        temperature: 0.7,
+        topK: 40,
+      });
+      const response = await session.prompt(
+        promptText
+      );
+      return response;
+    } catch (err) {
+      console.warn("Chrome AI failed:", err);
+      return null;
+    }
+    return;
+  }
+
+  // Chrome Nano succeeded
+  let result2 = { success: false };
+  if (_rewriteWithFormat) {
+    result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders));
+  } else {
+    result2 = output;
+  }
+
+  window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
+  return;
+}
+
+console.log("✅ Modular Hybrid AI handler ready");
+
+export function initHybridListener() {
+  window.addEventListener("message", async (event) => {
+    if (event.source !== window) return;
+    if (event.data.type !== "TS_GEMINI_REQUEST") return;
+    await handleHybridRequest(event.data);
+  });
+
+    const { textWithPlaceholders, textWithoutPlaceholders, tone, complexity, brevity } = event.data;
+    const profile = {tone, complexity, brevity}
+
+    const freeWritePrompt = buildPromptFreeRewrite(textWithoutPlaceholders, profile)
+
+    //console.log("received: ", event.data.type)
+
+    try {
+      // Step 1: try Chrome Nano
+      let output = await tryChromeAI(freeWritePrompt);
+
+      // Step 2: fallback if needed
+      if (!output) {
+        const fluentRewrite = await tryGeminiCloud(freeWritePrompt);
+        console.log("fluenRewrite: ", fluentRewrite)
+
+        let result = {success:false}
+        if (fluentRewrite.success){
+          result = await tryGeminiCloud(buildPromptAlign(fluentRewrite.text, textWithPlaceholders))
+          console.log("After alignment: ", result)
+        }
+
+        if (result.success) {
+          window.postMessage(
+            { type: "TS_GEMINI_RESPONSE", text: result.text },
+            "*"
+          );
+        } else {
+          window.postMessage(
+            { type: "TS_GEMINI_ERROR", error: result.error },
+            "*"
+          );
+        }
+        return;
+      }
+
+      // If Chrome Nano succeeded
+      const result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders))
+
+      window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
+    } catch (err) {
+      console.error("Hybrid handler error:", err);
+      window.postMessage(
+        { type: "TS_GEMINI_ERROR", error: err.message || "Unknown error" },
+        "*"
+      );
+    }
+  });
+}
+initHybridListener()
+
+
+
+// === Hybrid Two-Pass Rewrite Pipeline ===
+// Prompt for free rewrite (fluency, tone/complexity/brevity)
+function buildPromptFreeRewrite(textWithoutPlaceholders, { tone, complexity, brevity }) {
+  console.log("calling buildPromptFreeRewrite: ", textWithoutPlaceholders)
+  return `
+You are an AI text editor. Rewrite the text according to these settings:
+
 - Tone: ${tone}
 - Complexity: ${complexity}
 - Brevity: ${brevity}
 
 Rules:
-1. Rewrite ONLY the user-selected section.
-2. Ensure the rewritten section fits naturally and coherently with the provided page context.
-3. Match tone precisely.
-4. Adjust vocabulary and sentence structure to fit complexity.
-5. Match verbosity or conciseness to brevity.
-6. Keep meaning accurate, no new facts.
-7. Produce fluent, natural, polished text.
+1. Match tone precisely.
+2. Adjust vocabulary and sentence structure to fit complexity.
+3. Match verbosity or conciseness to brevity.
+4. Keep meaning accurate, no new facts.
+5. Produce fluent, natural, polished text.
 
-Page Context:
-${pageContext}
-
-User-Selected Section:
+Text:
 ${textWithoutPlaceholders}
-  `;
+`;
 }
 
 // Prompt for alignment (merge placeholders back in)
-export function buildPromptAlign(naturalText, placeholderText) {
+function buildPromptAlign(naturalText, placeholderText) {
   return `You are an AI Text Alignment Specialist. Your task is to analyze a "Natural Text" and a "Text with Placeholders" and rewrite the Natural Text by inserting the placeholders **only** where the surrounding words in the Natural Text logically and semantically match the context of the placeholder in the provided example.
 
 **CRITICAL INSTRUCTIONS:**
@@ -162,85 +290,5 @@ export function buildPromptAlign(naturalText, placeholderText) {
 **Output:`;
 }
 
-// --- Hybrid AI handler ---
-export async function handleHybridRequest(eventData) {
-  const {
-    textWithPlaceholders,
-    textWithoutPlaceholders,
-    rewriteWithFormat,
-    context,
-    tone,
-    complexity,
-    brevity,
-  } = eventData;
-  const profile = { tone, complexity, brevity };
-  _rewriteWithFormat = rewriteWithFormat;
-
-  const freeWritePrompt = buildPromptContextAwareRewrite(
-    textWithoutPlaceholders,
-    context,
-    profile
-  );
-
-  // try Chrome Nano
-  let output = await tryChromeAI(freeWritePrompt);
-
-  // fallback Gemini if needed
-  if (!output) {
-    let fluentRewrite = await tryGeminiCloud(freeWritePrompt);
-    let result = { success: false };
-
-    if (fluentRewrite.success) {
-      if (_rewriteWithFormat) {
-        result = await tryGeminiCloud(
-          buildPromptAlign(fluentRewrite.text, textWithPlaceholders)
-        );
-      } else {
-        result = fluentRewrite;
-      }
-    }
-
-    if (result.success) {
-      window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result.text }, "*");
-    } else {
-      window.postMessage({ type: "TS_GEMINI_ERROR", error: result.error }, "*");
-    }
-    return;
-  }
-
-  // Chrome Nano succeeded
-  let result2 = { success: false };
-  if (_rewriteWithFormat) {
-    result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders));
-  } else {
-    result2 = output;
-  }
-
-  window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
-  return;
-}
-
-console.log("✅ Modular Hybrid AI handler ready");
-
-export function initHybridListener() {
-  window.addEventListener("message", async (event) => {
-    if (event.source !== window) return;
-    if (event.data.type !== "TS_GEMINI_REQUEST") return;
-    await handleHybridRequest(event.data);
-  });
-
-  window.addEventListener("message", async (event) => {
-    if (event.source !== window) return; // make sure it's from the page itself
-    if (event.data.type === "TS-SUMMARIZE-TEXT") {
-        console.log("Text to summarize:", event.data.text);
-        const response = await summarizeText(event.data.text)
-         window.postMessage(
-          { type: "TS-SUMMARIZE-TEXT-RESPONSE", id: event.data.id, response },
-          "*"
-        );
-    }
-  });
-}
-initHybridListener()
-
-
+  console.log("✅ Hybrid AI handler ready (Chrome Nano + Gemini fallback)");
+})();

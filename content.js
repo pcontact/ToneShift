@@ -209,19 +209,6 @@
   floatingIcon.style.display = "none";
   document.body.appendChild(floatingIcon);
 
-  // --- Floating preview button ---
-  const floatingPreviewBtn = document.createElement("button");
-  floatingPreviewBtn.className = "ts-floating-preview-btn";
-  floatingPreviewBtn.textContent = "✨ Refine";
-  floatingPreviewBtn.title = "Polish your selected text instantly with ToneShift.";
-  //document.body.appendChild(floatingPreviewBtn);
-
-  const fPBContainer = document.createElement("div")
-  fPBContainer.className = "ts-fpb-container"
-  fPBContainer.appendChild(floatingPreviewBtn)
-  document.body.appendChild(fPBContainer)
-
-
   // --- Sidebar host + shadow DOM ---
   const host = document.createElement("div");
   host.id = "toneshift-sidebar-host";
@@ -276,69 +263,6 @@
         align-items: center;
         gap: 6px;
         margin-top: 8px;
-      }
-      
-      /* Advanced section styles */
-      #ts-advanced-toggle {
-        background: transparent;
-        border: 1px solid #007bff;
-        color: #121212;
-        width: 100%;
-        margin: 10px 0;
-      }
-      #ts-advanced-toggle:hover {
-        background: #f0f8ff;
-      }
-      #ts-advanced-controls {
-        background: #f8f9fa;
-        border-radius: 6px;
-        padding: 10px;
-        margin: 5px 0;
-        border-left: 3px solid #b388ff;
-      }
-      #ts-advanced-controls label {
-        /*font-weight: bold;*/
-        color: #121212;
-      }
-
-      .setting-with-tooltip {
-        position: relative; /* This is crucial for positioning the tooltip relative to its container */
-        display: inline-block;
-        cursor: help; /* This changes the cursor to indicate it's a help/info element */
-      }
-
-      .tooltip {
-        visibility: hidden;
-        width: 200px;
-        background-color: #555;
-        color: #fff;
-        text-align: center;
-        border-radius: 6px;
-        padding: 5px;
-        position: absolute;
-        z-index: 1;
-        bottom: 125%; /* Position the tooltip above the text */
-        left: 50%;
-        margin-left: -100px; /* Center the tooltip */
-        opacity: 0;
-        transition: opacity 0.3s;
-      }
-
-      .setting-with-tooltip:hover .tooltip {
-        visibility: visible;
-        opacity: 1;
-      }
-
-      /* Optional: Add an arrow to the tooltip */
-      .tooltip::after {
-        content: "";
-        position: absolute;
-        top: 100%;
-        left: 50%;
-        margin-left: -5px;
-        border-width: 5px;
-        border-style: solid;
-        border-color: #555 transparent transparent transparent;
       }
     </style>
 
@@ -413,6 +337,16 @@
 
 
 
+      <hr>
+
+      <button id="ts-rewrite-page" title="Rewrite the entire page using the selected profile">⚡ Rewrite Page</button>
+      <button id="ts-undo-all" title="Undo all changes and restore the original page">⏪ Undo All</button>
+
+      <div class="ts-toggle" title="Automatically rewrite every page you visit using the selected profile">
+        <input type="checkbox" id="ts-auto-rewrite" />
+        <label for="ts-auto-rewrite">Auto-Rewrite Pages</label>
+      </div>
+
       <div id="ts-spinner" style="display:none; margin-top:10px; text-align:center;">
         <div class="ts-loader"></div>
       </div>
@@ -450,31 +384,12 @@
   const rewritePageBtn = qs("ts-rewrite-page");
   const undoAllBtn = qs("ts-undo-all");
   const autoRewriteToggle = qs("ts-auto-rewrite");
-  const preserveFormattingCheckbox = qs('ts-preserve-formatting');
-
-  undoBtn.style.display = "none" // hide sidebar undoBtn
-  applyBtn.style.display = "none" // hide sidebar applyBtn
 
   // --- State ---
   let lastAIResponse = "";
   const undoStack = [];
-  const rewriteMap = {}
-  let placeholderMap = {};
-  let mapKeyPool = 0
-  let rewriteWithFormat = false
-  let latestModeSelect = ""
+  let placeholderMap = {}; // Make it accessible across listeners
 
-  // Inline preview state
-  let isPreviewMode = false;
-  let previewRange = null;
-  let previewOriginalContent = null;
-  let currentPreviewElement = null;
-
-  // Floating button state - FIXED: Use object to store both range and rect
-  let floatingButtonState = {
-    range: null,
-    rect: null
-  };
 
   // --- Profiles ---
   const builtInPresets = {
@@ -1005,15 +920,11 @@
 
     if (event.data.type === "TS_GEMINI_RESPONSE") {
       lastAIResponse = event.data.text;
-      lastAIResponse = convertOmittedPlaceHolders(lastAIResponse);
 
-      if (isPreviewMode) {
-        applyInlinePreview(lastAIResponse);
-        isPreviewMode = false;
-      } else {
-        outputBox.textContent = lastAIResponse;
-      }
-      
+      // convert any omitted placeholder during aligning phase into html card
+      lastAIResponse = convertOmittedPlaceHolders(lastAIResponse)
+
+      outputBox.textContent = lastAIResponse;
       setLoading(false);
       toggleSpinner(null, false)
     }
@@ -1033,154 +944,8 @@
     }
   });
 
-  // --- Enhanced Inline Preview Functions - FIXED ---
-  function applyInlinePreview(aiResponse) {
-    if (!previewRange || !previewOriginalContent) {
-      console.error("No preview range or content available");
-      return;
-    }
-
-    try {
-      //clearInlinePreview();
-      hideFloatingPreviewButton()
-
-      // Use the same reconstruction logic as the Apply button
-      let reconstructedHTML = aiResponse;
-      const tagRegex = /_TS_TAG_(\d+)_START\[(.*?)\]_TS_TAG_\1_END/g;
-
-      let iterations = 0;
-      while (tagRegex.test(reconstructedHTML) && iterations < 50) {
-        reconstructedHTML = reconstructedHTML.replace(tagRegex, (match, index, innerText) => {
-          const key = `_TS_TAG_${index}`;
-          const node = placeholderMap[key]?.cloneNode(true);
-
-          if (node) {
-            node.textContent = innerText;
-            return node.outerHTML;
-          }
-          return innerText;
-        });
-        iterations++;
-      }
-
-      // Clean up any stray placeholders
-      reconstructedHTML = reconstructedHTML.replace(/_TS_TAG_\d+_START\[?/g, "");
-      reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
-
-      // Create preview container
-      const previewContainer = document.createElement("aside");
-      previewContainer.className = "ts-preview-container";
-      previewContainer.setAttribute("role", "region");
-      previewContainer.setAttribute("aria-labelledby", "ai-label");
-
-      // Create meta row (badge + button)
-      const metaRow = document.createElement("div");
-      metaRow.className = "ts-meta";
-
-      // Create AI badge
-      const badge = document.createElement("span");
-      badge.className = "ts-badge";
-      badge.id = "ai-label";
-      badge.textContent = "AI Refined text" + latestModeSelect;
-
-      // Create revert button
-      const revertButton = createRevertPreviewBtn();
-      const mapKey = getMapKey();
-      revertButton.id = mapKey;
-      revertButton.textContent = "Back to original text";
-      revertButton.classList.add("ts-revert-button");
-
-      // Handle revert click
-      revertButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const { range, originalNodes } = rewriteMap[revertButton.id];
-        range.deleteContents();
-        const restored = originalNodes.cloneNode(true);
-        range.insertNode(restored);
-
-        // Cleanup state
-        delete rewriteMap[revertButton.id];
-        previewRange = null;
-        previewOriginalContent = null;
-        isPreviewMode = false;
-      });
-
-      // Append badge + button to meta
-      metaRow.appendChild(badge);
-      metaRow.appendChild(revertButton);
-
-      // Create text container
-      const fragment = document.createRange().createContextualFragment(reconstructedHTML);
-      const textContainer = document.createElement("div");
-      textContainer.className = "ts-preview-text-highlight";
-      textContainer.appendChild(fragment);
-
-      // Assemble final structure
-      previewContainer.appendChild(metaRow);
-      previewContainer.appendChild(textContainer);
-
-
-      // Replace the content
-      undoStack.push({range:previewRange, originalNodes:previewOriginalContent})
-      rewriteMap[mapKey] = {range:previewRange, originalNodes:previewOriginalContent}
-      previewRange.deleteContents();
-      previewRange.insertNode(previewContainer);
-
-      currentPreviewElement = previewContainer;
-      console.log("Inline preview applied with HTML reconstruction");
-
-    } catch (error) {
-      console.error("Error applying inline preview:", error);
-      outputBox.textContent = aiResponse;
-    }
-  }
-
-  function revertInlinePreview() {
-    if (!previewRange || !previewOriginalContent) return;
-
-    try {
-      clearInlinePreview();
-
-      // Use the same restoration logic as the Undo button
-      previewRange.deleteContents();
-      const restored = previewOriginalContent.cloneNode(true);
-      previewRange.insertNode(restored);
-
-      // Clear state
-      previewRange = null;
-      previewOriginalContent = null;
-      isPreviewMode = false;
-
-      console.log("Inline preview reverted with proper DOM restoration");
-    } catch (error) {
-      console.error("Error reverting inline preview:", error);
-    }
-  }
-
-  function clearInlinePreview() {
-    if (currentPreviewElement) {
-      currentPreviewElement.remove();
-      currentPreviewElement = null;
-    }
-  }
-
-  function getMapKey(){
-    mapKeyPool += 1
-    return mapKeyPool.toString()
-  }
-
-  // --- Preview selection rewrite ---
-  previewBtn.addEventListener("click", () => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
-      outputBox.textContent = "No text selected.";
-      return;
-    }
-    performPreview(selection);
-  });
-
   // --- Recursive function to replace element nodes with placeholders while keeping text ---
-  let placeholderIndex = 0;
+ let placeholderIndex = 0;
   function replaceNodes(node) {
     if (node.nodeType === Node.TEXT_NODE) {
       return node.textContent;
@@ -1202,28 +967,74 @@
     return "";
   }
 
-  // --- Apply selection rewrite ---
+  // --- Preview selection rewrite ---
+  previewBtn.addEventListener("click", () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      outputBox.textContent = "No text selected.";
+      return;
+    }
+
+    const selectionText = selection.toString().trim();
+    if (!selectionText) {
+      outputBox.textContent = "No text selected.";
+      return;
+    }
+
+    try {
+      //clearInlinePreview();
+      hideFloatingPreviewButton()
+
+    // Reset globals
+    placeholderIndex = 0;
+    placeholderMap = {};
+
+    // Build text with placeholders
+    const textWithPlaceholders = replaceNodes(selection.getRangeAt(0).cloneContents());
+    //console.log("Text with placeholders:", textWithPlaceholders);
+    // console.log("Placeholder map:", placeholderMap);
+
+    const settings = {
+      tone: mapTone(toneSlider.value),
+      complexity: mapComplexity(complexitySlider.value),
+      brevity: mapBrevity(brevitySlider.value),
+    };
+
+    // Send to AI (both versions)
+    window.postMessage(
+      {
+        type: "TS_GEMINI_REQUEST",
+        textWithPlaceholders: textWithPlaceholders.trim(),
+        textWithoutPlaceholders: selectionText, // <-- raw version
+        ...settings,
+      },
+      "*"
+    );
+  });
+
+
+  
+  // --- Apply selection rewrite (preserve styling with structured placeholders) ---
   applyBtn.addEventListener("click", () => {
     if (!lastAIResponse) {
       alert("No AI response to apply.");
       return;
     }
 
-    clearInlinePreview();
-    isPreviewMode = false;
-    previewRange = null;
-    previewOriginalContent = null;
-
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.toString().trim() === "") return;
 
     const range = selection.getRangeAt(0);
+
+    // Save original DOM for undo
     const originalNodes = range.cloneContents();
     undoStack.push({ range: range.cloneRange(), originalNodes });
 
     let reconstructedHTML = lastAIResponse;
+
     const tagRegex = /_TS_TAG_(\d+)_START\[(.*?)\]_TS_TAG_\1_END/g;
 
+    // 🔁 Keep replacing until no more placeholders
     let iterations = 0;
     while (tagRegex.test(reconstructedHTML) && iterations < 50) {
       reconstructedHTML = reconstructedHTML.replace(tagRegex, (match, index, innerText) => {
@@ -1234,14 +1045,16 @@
           node.textContent = innerText;
           return node.outerHTML;
         }
-        return innerText;
+        return innerText; // fallback
       });
       iterations++;
     }
 
+    // 🧹 Final safeguard: strip any stray placeholders
     reconstructedHTML = reconstructedHTML.replace(/_TS_TAG_\d+_START\[?/g, "");
     reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
 
+    // Replace in DOM
     range.deleteContents();
     const fragment = document.createRange().createContextualFragment(reconstructedHTML);
     range.insertNode(fragment);
@@ -1249,26 +1062,28 @@
     selection.removeAllRanges();
   });
 
-  // --- Undo selection ---
-  undoBtn.addEventListener("click", () => {
-    if (undoStack.length === 0) {
-      alert("Nothing to undo.");
-      return;
-    }
+// --- Undo selection (restore original DOM nodes) ---
+undoBtn.addEventListener("click", () => {
+  if (undoStack.length === 0) {
+    alert("Nothing to undo.");
+    return;
+  }
 
-    const item = undoStack.pop();
-    if (item.range && item.originalNodes) {
-      item.range.deleteContents();
-      const restored = item.originalNodes.cloneNode(true);
-      item.range.insertNode(restored);
+  const item = undoStack.pop();
+  if (item.range && item.originalNodes) {
+    item.range.deleteContents();
+    const restored = item.originalNodes.cloneNode(true); // DocumentFragments are one-time use
+    item.range.insertNode(restored);
 
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(item.range);
-    }
-  });
+    // Restore selection for better UX
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(item.range);
+  }
+});
 
- // --- Reset output ---
+
+  // --- Reset output ---
   resetBtn.addEventListener("click", () => {
     outputBox.textContent = "";
     lastAIResponse = "";
@@ -1281,7 +1096,7 @@
   });
 
   // --- Sidebar visibility ---
-  function hideSideBar(){
+  hideBtn.addEventListener("click", () => {
     sidebar.style.display = "none";
     floatingIcon.style.display = "flex";
     chrome.storage.local.set({ sidebarVisible: false });
@@ -1336,16 +1151,7 @@
       setLoading._timeout = setTimeout(() => {
         outputBox.textContent = "⚠️ Request timed out.";
         setLoading(false);
-        
-        // Reset preview state on timeout
-        /*
-        if (isPreviewMode) {
-          isPreviewMode = false;
-          previewRange = null;
-          previewOriginalContent = null;
-        }
-        */
-      }, 100000);
+      }, 40000);
     } else {
       spinner.style.display = "none";
       previewBtn.disabled = false;
@@ -1370,7 +1176,6 @@
     }
   });
 
-  /*
   // --- Rewrite page ---
   rewritePageBtn.addEventListener("click", async () => {
     console.log("🔄 Rewrite entire page requested");
@@ -1460,34 +1265,33 @@
 
     console.log("Would rewrite page with profile:", profile);
   }
-    */
 
-  function convertOmittedPlaceHolders(inputText) {
-    const marker = "#omitted placeholders"; 
-    const markerIndex = inputText.indexOf(marker);
-    let hasLink = false;
+function convertOmittedPlaceHolders(inputText) {
+  const marker = "#omitted placeholders"; 
+  const markerIndex = inputText.indexOf(marker);
+  let hasLink = false;
 
-    if (markerIndex === -1) {
-      console.log("No '#omitted placeholders' section found.");
-      return inputText;
-    }
+  if (markerIndex === -1) {
+    console.error("No '#omitted placeholders' section found.");
+    return inputText;
+  }
 
-    // Keep text above the marker
-    const beforeMarker = inputText.slice(0, markerIndex).trim();
+  // Keep text above the marker
+  const beforeMarker = inputText.slice(0, markerIndex).trim();
 
-    // Get JSON text after the marker
-    const afterMarker = inputText.slice(markerIndex + marker.length).trim();
+  // Get JSON text after the marker
+  const afterMarker = inputText.slice(markerIndex + marker.length).trim();
 
-    let placeholders;
-    try {
-      placeholders = JSON.parse(afterMarker);
-    } catch (err) {
-      console.error("Failed to parse JSON:", err);
-      return beforeMarker; 
-    }
+  let placeholders;
+  try {
+    placeholders = JSON.parse(afterMarker);
+  } catch (err) {
+    console.error("Failed to parse JSON:", err);
+    return beforeMarker; 
+  }
 
-    // Build compact card HTML string with smaller header
-    let cardHTML = `
+  // Build compact card HTML string with smaller header
+  let cardHTML = `
 <div style="max-width: 800px; margin: 4px auto 10px; font-family: sans-serif;">
   <h5 style="margin: 2px 0 4px; font-size: 13px; color: #555;">Related links</h5>
   <div style="
@@ -1501,14 +1305,14 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   ">`;
 
-    placeholders.forEach(item => {
-      const key = item.split("_START")[0]; // grab the key
-      const node = placeholderMap[key];
+  placeholders.forEach(item => {
+    const key = item.split("_START")[0]; // grab the key
+    const node = placeholderMap[key];
 
-      // only add nodes that are links in the cardHTML
-      if (node instanceof HTMLAnchorElement) {
-        hasLink = true;
-        cardHTML += `
+    // only add nodes that are links in the cardHTML
+    if (node instanceof HTMLAnchorElement) {
+      hasLink = true;
+      cardHTML += `
       <div style="
         border: 1px solid #ddd;
         border-radius: 3px;
@@ -1517,21 +1321,19 @@
         text-align: center;
         background: #f9f9f9;
       ">${item}</div>`;
-      }
-    });
-
-    cardHTML += "\n  </div>\n</div>";
-
-    // Combine original text above marker + card HTML if there are links
-    let finalText = beforeMarker;
-    if (hasLink) {
-      finalText += "\n\n" + cardHTML;
     }
+  });
 
-    return finalText;
+  cardHTML += "\n  </div>\n</div>";
+
+  // Combine original text above marker + card HTML if there are links
+  let finalText = beforeMarker;
+  if (hasLink) {
+    finalText += "\n\n" + cardHTML;
   }
 
-  // Initialize slider values display
-  updateSliderValues();
+  return finalText;
+}
+
 
 })();
