@@ -900,7 +900,7 @@
       isPreviewMode = true
 
       //#microcard testing
-      
+      /*
       setTimeout(() => {
       showMicroCard(selection, mapKey);
       }, 10);
@@ -911,6 +911,7 @@
         updateOutputDisplayUI(" i love windows")
       }, 2000)
       return
+      */
       
 
       //Use the same preview logic
@@ -1244,113 +1245,164 @@
       reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
       return reconstructedHTML;
   }
-  // --- Enhanced Inline Preview Functions - FIXED ---
-  function applyInlinePreview(rewrittenText, rewriteMapKey) {
-    if (!rewriteMapKey) {
-      console.error("No rewriteMapKey provided for inline preview.");
+  // Robust applyInlinePreview with correct mapping of selection to cloned paragraph
+function applyInlinePreview(rewrittenText, rewriteMapKey) {
+  if (!rewriteMapKey) {
+    console.error("No rewriteMapKey provided for inline preview.");
+    return;
+  }
+
+  try {
+    hideFloatingPreviewButton();
+
+    const mapEntry = rewriteMap[rewriteMapKey];
+    if (!mapEntry) {
+      console.error("No entry in rewriteMap for key:", rewriteMapKey);
       return;
     }
 
-    try {
-      //clearInlinePreview();
-      hideFloatingPreviewButton()
+    const { range, originalNodes, parentParagraph } = mapEntry;
+    if (!range || !parentParagraph) {
+      console.error("Missing range or parentParagraph in rewriteMap entry.");
+      return;
+    }
 
-      // Create preview container
-      const previewContainer = document.createElement("aside");
-      previewContainer.className = "ts-preview-container";
-      previewContainer.setAttribute("role", "region");
-      previewContainer.setAttribute("aria-labelledby", "ai-label");
+    // --- Compute character offsets of the selection within the parentParagraph ---
+    function getOffsetsWithinContainer(rng, container) {
+      const beforeStart = document.createRange();
+      beforeStart.setStart(container, 0);
+      beforeStart.setEnd(rng.startContainer, rng.startOffset);
+      const start = beforeStart.toString().length;
 
-      // Create meta row (badge + button)
-      const metaRow = document.createElement("div");
-      metaRow.className = "ts-meta";
+      const beforeEnd = document.createRange();
+      beforeEnd.setStart(container, 0);
+      beforeEnd.setEnd(rng.endContainer, rng.endOffset);
+      const end = beforeEnd.toString().length;
 
-      // Create AI badge
-      const badge = document.createElement("span");
-      badge.className = "ts-badge";
-      badge.id = "ai-label";
-      badge.textContent = "AI Refined text" + latestModeSelect;
+      return { start, end };
+    }
 
-      // Create revert button
-      const revertButton = createRevertPreviewBtn();
-      const mapKey = rewriteMapKey;
-      revertButton.id = mapKey;
-      revertButton.textContent = "Back to original text";
-      revertButton.classList.add("ts-revert-button");
+    const { start: selStart, end: selEnd } = getOffsetsWithinContainer(range, parentParagraph);
 
-      // Handle revert click
-      revertButton.addEventListener("click", (e) => {
-        e.stopPropagation();
+    // --- Prepare clones ---
+    const originalClone = parentParagraph.cloneNode(true); // pristine copy for revert
+    mapEntry.originalClone = originalClone;
 
-        const { parentParagraph } = rewriteMap[mapKey];
-        const previewContainer = e.target.closest(".ts-preview-container");
+    const previewParagraph = parentParagraph.cloneNode(true); // mutated copy for preview
 
-        if (!previewContainer || !parentParagraph) {
-          console.error("Missing preview container or original paragraph for revert.");
-          return;
+    // --- Create preview container and meta row + revert button ---
+    const previewContainer = document.createElement("aside");
+    previewContainer.className = "ts-preview-container";
+    previewContainer.setAttribute("role", "region");
+    previewContainer.setAttribute("aria-labelledby", "ai-label");
+
+    const metaRow = document.createElement("div");
+    metaRow.className = "ts-meta";
+
+    const badge = document.createElement("span");
+    badge.className = "ts-badge";
+    badge.id = "ai-label";
+    badge.textContent = "AI Refined text" + (typeof latestModeSelect !== "undefined" ? latestModeSelect : "");
+
+    const revertButton = createRevertPreviewBtn();
+    revertButton.textContent = "Back to original text";
+    revertButton.classList.add("ts-revert-button");
+
+    metaRow.appendChild(badge);
+    metaRow.appendChild(revertButton);
+
+    // --- Map offsets into the cloned paragraph and produce a Range there ---
+    function createRangeFromOffsets(container, startOffset, endOffset) {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+      let node;
+      let charCount = 0;
+      let foundStart = false;
+      const newRange = document.createRange();
+
+      while ((node = walker.nextNode())) {
+        const nodeLen = node.textContent.length;
+
+        if (!foundStart && charCount + nodeLen >= startOffset) {
+          newRange.setStart(node, startOffset - charCount);
+          foundStart = true;
         }
 
-        // Replace the entire preview container with the original paragraph
-        previewContainer.replaceWith(parentParagraph);
+        if (foundStart && charCount + nodeLen >= endOffset) {
+          newRange.setEnd(node, endOffset - charCount);
+          return newRange;
+        }
 
-        // Cleanup stored data
-        delete rewriteMap[mapKey];
-        isPreviewMode = false;
-        console.log("Reverted to original paragraph.");
-      });
+        charCount += nodeLen;
+      }
 
+      // If selection ends exactly at container end, and start was found, terminate at last node end
+      if (foundStart) {
+        // setEnd on the last seen node at its length
+        newRange.setEnd(node, node.textContent.length);
+        return newRange;
+      }
 
-      // Append badge + button to meta
-      metaRow.appendChild(badge);
-      metaRow.appendChild(revertButton);
+      // couldn't map the offsets
+      return null;
+    }
 
-      // get range(window.selection.getRangeAt(0).cloneRange()), 
-      // originalNodes(range.cloneContents();),
-      // and parentParagraph(getSelectionParentParagraph()) from rewriteMap
-      const {range, originalNodes, parentParagraph} = rewriteMap[rewriteMapKey]
-      // Grab plain text of the selected range
-      const selectedText = range.toString().trim();
-      if (!selectedText) {
-        console.warn("No selected text found in range.");
+    const cloneRange = createRangeFromOffsets(previewParagraph, selStart, selEnd);
+
+    // --- Insert highlight in clone (use a fresh element for insertion) ---
+    if (cloneRange) {
+      const highlightSpan = document.createElement("span");
+      highlightSpan.className = "ts-preview-text-highlight";
+      highlightSpan.textContent = rewrittenText;
+
+      cloneRange.deleteContents();
+      // If inserting node into a text node boundary, insertNode will split node as needed
+      cloneRange.insertNode(highlightSpan);
+    } else {
+      // Fallback: try a best-effort text replacement or append highlight at end
+      console.warn("Could not map selection into cloned paragraph; appending highlight at end as fallback.");
+      const fallbackSpan = document.createElement("span");
+      fallbackSpan.className = "ts-preview-text-highlight";
+      fallbackSpan.textContent = rewrittenText;
+      previewParagraph.appendChild(fallbackSpan);
+    }
+
+    // --- Assemble preview and replace original paragraph ---
+    previewContainer.appendChild(metaRow);
+    previewContainer.appendChild(previewParagraph);
+
+    // Keep an undo record (you might want to store originalClone here too)
+    undoStack.push({ range, originalNodes, parentParagraph });
+
+    parentParagraph.replaceWith(previewContainer);
+    currentPreviewElement = previewContainer;
+    isPreviewMode = true;
+
+    // --- Revert logic: replace preview with the pristine original clone ---
+    revertButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const container = e.target.closest(".ts-preview-container");
+      const entry = rewriteMap[rewriteMapKey];
+      const cloneForRestore = entry && entry.originalClone;
+
+      if (!container || !cloneForRestore) {
+        console.error("Missing preview container or original clone for revert.");
         return;
       }
 
-      //Rebuild the paragraph with the rewritten portion highlighted
-      const paragraphHTML = parentParagraph.innerHTML;
+      container.replaceWith(cloneForRestore);
+      delete rewriteMap[rewriteMapKey];
+      isPreviewMode = false;
+      console.log("Reverted to original paragraph.");
+    });
 
-      // Escape special regex characters in selectedText for safe replacement
-      const escapedSelectedText = selectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    console.log("Inline preview applied (mapped by character offsets).");
+    return rewriteMapKey;
 
-      // Replace first occurrence of the selected text with the rewritten one, wrapped in span
-      const highlightedHTML = paragraphHTML.replace(
-        new RegExp(escapedSelectedText),
-        `<span class="ts-preview-text-highlight">${rewrittenText}</span>`
-      );
-
-      // Update paragraph content
-      const newParagraph = parentParagraph.cloneNode(false);
-      newParagraph.innerHTML = highlightedHTML;
-
-      // --- Assemble final preview container ---
-      previewContainer.appendChild(metaRow);
-      previewContainer.appendChild(newParagraph);
-
-      // --- Replace original paragraph in the DOM ---
-      undoStack.push({ range, originalNodes, parentParagraph });
-
-      parentParagraph.replaceWith(previewContainer);
-
-      // --- Track current preview
-      currentPreviewElement = previewContainer;
-      console.log("Inline preview applied by wrapping paragraph instead of selection.");
-
-      return rewriteMapKey;
-
-    } catch (error) {
-      console.error("Error applying inline preview:", error);
-      //outputBox.textContent = aiResponse;
-    }
+  } catch (error) {
+    console.error("Error applying inline preview:", error);
   }
+}
+
 
   function revertInlinePreview(mapKey, removeEntry=false) {
     const { parentParagraph } = rewriteMap[mapKey];
@@ -1908,7 +1960,7 @@
     //console.log("rewrimapkey: ", rewriteMapKey, " mode: ", mode)
     microcardRewrittenEl.textContent = "";
 
-    //performPreview(rewriteMapKey)
+    performPreview(rewriteMapKey)
     
     const node = card.querySelector(".tsRewrittenText")
     showSpinner(node, mode)
@@ -1924,14 +1976,14 @@
     replaceBtn.disabled=true
 
     // #microcard testing
-    
+    /*
     setTimeout(() => {
      updateOutputDisplayUI("we are windows")
       
     }, 2000);
     
     return
-    
+    */
   }
 
   // === Show Spinner (Skip Mode Selection Path) === //
