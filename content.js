@@ -689,6 +689,157 @@
   });
   
 
+  //expand the current selection to the containing sentence (works across inline tags)
+  function expandSelectionToSentence({ debug = false } = {}) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+
+    const origRange = sel.getRangeAt(0);
+
+    // Find the nearest block ancestor of the selection start
+    let block = origRange.startContainer;
+    while (block && block.nodeType !== Node.ELEMENT_NODE) block = block.parentNode;
+    while (block && !isBlockElement(block)) block = block.parentNode;
+    if (!block) {
+      if (debug) console.warn('No block ancestor found.');
+      return;
+    }
+
+    // Get the full block text (this respects inline tags)
+    const blockRange = document.createRange();
+    blockRange.selectNodeContents(block);
+    const fullText = blockRange.toString();
+
+    // Helper: get absolute offset (number of characters from block start) for a boundary
+    function absoluteOffsetFor(container, offset, clampToBlock = true) {
+      try {
+        if (!block.contains(container)) {
+          // If selection boundary is outside the block, clamp to start or end
+          return clampToBlock ? (container.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING ? 0 : fullText.length) : null;
+        }
+        const r = document.createRange();
+        r.setStart(block, 0);
+        r.setEnd(container, offset);
+        return r.toString().length;
+      } catch (e) {
+        if (debug) console.error('absoluteOffsetFor error', e);
+        return null;
+      }
+    }
+
+    // Compute absolute start / end within the block (clamp selection if it spills out)
+    let absStart = absoluteOffsetFor(origRange.startContainer, origRange.startOffset);
+    let absEnd   = absoluteOffsetFor(origRange.endContainer, origRange.endOffset);
+    if (absStart === null) absStart = 0;
+    if (absEnd === null)   absEnd   = fullText.length;
+
+    // Safety: ensure valid ordering
+    if (absStart < 0) absStart = 0;
+    if (absEnd > fullText.length) absEnd = fullText.length;
+    if (absStart > absEnd) { const t = absStart; absStart = absEnd; absEnd = t; }
+
+    if (debug) {
+      console.group('expandSelectionToSentence debug');
+      console.log('block text:', JSON.stringify(fullText));
+      console.log('absStart:', absStart, 'absEnd:', absEnd);
+    }
+
+    // Sentence boundary search (simple; you can extend this to handle abbreviations)
+    const boundaryRE = /[.!?]/;
+    // Find previous punctuation (scan left)
+    let sentenceStart = 0;
+    for (let i = absStart - 1; i >= 0; i--) {
+      if (boundaryRE.test(fullText[i])) { sentenceStart = i + 1; break; }
+    }
+    // Find next punctuation (scan right)
+    let sentenceEnd = fullText.length;
+    for (let i = absEnd; i < fullText.length; i++) {
+      if (boundaryRE.test(fullText[i])) { sentenceEnd = i + 1; break; }
+    }
+
+    // Trim surrounding whitespace
+    while (sentenceStart < fullText.length && /\s/.test(fullText[sentenceStart])) sentenceStart++;
+    while (sentenceEnd > 0 && /\s/.test(fullText[sentenceEnd - 1])) sentenceEnd--;
+
+    if (sentenceStart >= sentenceEnd) {
+      // nothing meaningful found — expand to the whole block as a fallback
+      sentenceStart = 0;
+      sentenceEnd = fullText.length;
+    }
+
+    if (debug) {
+      console.log('sentenceStart:', sentenceStart, 'sentenceEnd:', sentenceEnd,
+                  'excerpt:', JSON.stringify(fullText.slice(sentenceStart, sentenceEnd)));
+    }
+
+    // Map absolute offsets back to (textNode, offset) pairs
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+    if (textNodes.length === 0) {
+      if (debug) console.warn('No text nodes under block.');
+      return;
+    }
+
+    // Find start node/offset and end node/offset by scanning cumulative lengths
+    let cum = 0;
+    let startNode = null, startNodeOffset = 0;
+    let endNode = null, endNodeOffset = 0;
+    for (let i = 0; i < textNodes.length; i++) {
+      const tn = textNodes[i];
+      const nextCum = cum + tn.textContent.length;
+
+      if (startNode === null && sentenceStart <= nextCum) {
+        startNode = tn;
+        startNodeOffset = Math.max(0, sentenceStart - cum);
+      }
+
+      if (endNode === null && sentenceEnd <= nextCum) {
+        endNode = tn;
+        endNodeOffset = Math.max(0, sentenceEnd - cum);
+      }
+
+      cum = nextCum;
+    }
+
+    // If end wasn't found, it's at the end of the last text node
+    if (!endNode) {
+      endNode = textNodes[textNodes.length - 1];
+      endNodeOffset = endNode.textContent.length;
+    }
+    // If start wasn't found (odd), fallback to first node start
+    if (!startNode) {
+      startNode = textNodes[0];
+      startNodeOffset = 0;
+    }
+
+    if (debug) {
+      console.log('startNode text snippet:', JSON.stringify(startNode.textContent.slice(0, 60)));
+      console.log('startNodeOffset:', startNodeOffset, 'endNodeOffset:', endNodeOffset);
+      console.groupEnd();
+    }
+
+    // Create and apply the new range
+    const newRange = document.createRange();
+    try {
+      newRange.setStart(startNode, startNodeOffset);
+      newRange.setEnd(endNode, endNodeOffset);
+
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    } catch (e) {
+      if (debug) console.error('Error building new range', e);
+    }
+
+    // --- helpers ---
+    function isBlockElement(el) {
+      if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+      const display = window.getComputedStyle(el).display;
+      return display === 'block' || display === 'list-item' || display === 'table' || display === 'flex' || display === 'grid';
+    }
+  }
+
   // expand the selection to a whole paragraph
   function expandSelectionToParagraph() {
     const selection = window.getSelection();
@@ -711,6 +862,20 @@
     }
   }
 
+  function getSelectionParentParagraph() {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return null;
+
+    let node = selection.anchorNode;
+    while (node) {
+      if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'P') {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
 
   // Floating button click handler - FIXED: Use stored state
   floatingPreviewBtn.addEventListener('click', (e) => {
@@ -719,21 +884,23 @@
     
     if (floatingButtonState.range) {
       // Create a selection from the stored range
-      expandSelectionToParagraph() // expand the selection to a whole paragraph
+      expandSelectionToSentence()
+      const parentParagraph = getSelectionParentParagraph()
+      //expandSelectionToParagraph() // expand the selection to a whole paragraph
       const selection = window.getSelection();
       //selection.removeAllRanges();
       //selection.addRange(floatingButtonState.range.cloneRange());
       const range = selection.getRangeAt(0).cloneRange();
       const originalContent = range.cloneContents();
       const mapKey = getMapKey();
-      rewriteMap[mapKey] = {range:range, originalContent:originalContent}
+      rewriteMap[mapKey] = {range:range, originalContent:originalContent, parentParagraph:parentParagraph};
       
-      console.log(rewriteMap)
+      //console.log(rewriteMap)
       
       isPreviewMode = true
 
       //#microcard testing
-      /*
+      
       setTimeout(() => {
       showMicroCard(selection, mapKey);
       }, 10);
@@ -744,7 +911,7 @@
         updateOutputDisplayUI(" i love windows")
       }, 2000)
       return
-      */
+      
 
       //Use the same preview logic
       performPreview(mapKey);
@@ -1114,63 +1281,88 @@
       // Handle revert click
       revertButton.addEventListener("click", (e) => {
         e.stopPropagation();
-        const { range, originalContent } = rewriteMap[mapKey];
-        range.deleteContents();
-        console.log(originalContent)
-        const restored = originalContent.cloneNode(true);
-        range.insertNode(restored);
 
-        // Cleanup state
+        const { parentParagraph } = rewriteMap[mapKey];
+        const previewContainer = e.target.closest(".ts-preview-container");
+
+        if (!previewContainer || !parentParagraph) {
+          console.error("Missing preview container or original paragraph for revert.");
+          return;
+        }
+
+        // Replace the entire preview container with the original paragraph
+        previewContainer.replaceWith(parentParagraph);
+
+        // Cleanup stored data
         delete rewriteMap[mapKey];
-        //previewRange = null;
-        //previewOriginalContent = null;
         isPreviewMode = false;
+        console.log("Reverted to original paragraph.");
       });
+
 
       // Append badge + button to meta
       metaRow.appendChild(badge);
       metaRow.appendChild(revertButton);
 
-      // Create text container
-      const fragment = document.createRange().createContextualFragment(rewrittenText);
-      const textContainer = document.createElement("div");
-      textContainer.className = "ts-preview-text-highlight";
-      textContainer.appendChild(fragment);
+      // get range(window.selection.getRangeAt(0).cloneRange()), 
+      // originalNodes(range.cloneContents();),
+      // and parentParagraph(getSelectionParentParagraph()) from rewriteMap
+      const {range, originalNodes, parentParagraph} = rewriteMap[rewriteMapKey]
+      // Grab plain text of the selected range
+      const selectedText = range.toString().trim();
+      if (!selectedText) {
+        console.warn("No selected text found in range.");
+        return;
+      }
 
-      // Assemble final structure
+      //Rebuild the paragraph with the rewritten portion highlighted
+      const paragraphHTML = parentParagraph.innerHTML;
+
+      // Escape special regex characters in selectedText for safe replacement
+      const escapedSelectedText = selectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // Replace first occurrence of the selected text with the rewritten one, wrapped in span
+      const highlightedHTML = paragraphHTML.replace(
+        new RegExp(escapedSelectedText),
+        `<span class="ts-preview-text-highlight">${rewrittenText}</span>`
+      );
+
+      // Update paragraph content
+      const newParagraph = parentParagraph.cloneNode(false);
+      newParagraph.innerHTML = highlightedHTML;
+
+      // --- Assemble final preview container ---
       previewContainer.appendChild(metaRow);
-      previewContainer.appendChild(textContainer);
+      previewContainer.appendChild(newParagraph);
 
+      // --- Replace original paragraph in the DOM ---
+      undoStack.push({ range, originalNodes, parentParagraph });
 
-      // Replace the content
-      const {range, originalNodes} = rewriteMap[rewriteMapKey]
-      undoStack.push({range:range, originalNodes:originalNodes})
-      //rewriteMap[mapKey] = {range:previewRange, originalNodes:previewOriginalContent}
-      range.deleteContents();
-      range.insertNode(previewContainer);
+      parentParagraph.replaceWith(previewContainer);
 
+      // --- Track current preview
       currentPreviewElement = previewContainer;
-      console.log("Inline preview applied with HTML reconstruction");
-      
-      return mapKey // return the key for this inline in the rewriteMapKey
+      console.log("Inline preview applied by wrapping paragraph instead of selection.");
+
+      return rewriteMapKey;
 
     } catch (error) {
       console.error("Error applying inline preview:", error);
-      outputBox.textContent = aiResponse;
+      //outputBox.textContent = aiResponse;
     }
   }
 
   function revertInlinePreview(mapKey, removeEntry=false) {
-    const { range, originalNodes } = rewriteMap[mapKey];
+    const { parentParagraph } = rewriteMap[mapKey];
+    const previewContainer = e.target.closest(".ts-preview-container");
 
-    if (!range || ! originalNodes){
-      console.error("Error reverting inline preview:", error);
-      return
-    } 
+    if (!previewContainer || !parentParagraph) {
+      console.error("Missing preview container or original paragraph for revert.");
+      return;
+    }
 
-    range.deleteContents();
-    const restored = originalNodes.cloneNode(true);
-    range.insertNode(restored);
+    // Replace the entire preview container with the original paragraph
+    previewContainer.replaceWith(parentParagraph);
 
     // Cleanup state
     if(removeEntry){
@@ -1559,7 +1751,6 @@
   updateSliderValues();
 
   // ===================== Create Floating "Refine" Microcard =================================
-
   // == global variable used among functions
   let originalText = ""
   let refineMicroCard = null
@@ -1717,7 +1908,7 @@
     //console.log("rewrimapkey: ", rewriteMapKey, " mode: ", mode)
     microcardRewrittenEl.textContent = "";
 
-    performPreview(rewriteMapKey)
+    //performPreview(rewriteMapKey)
     
     const node = card.querySelector(".tsRewrittenText")
     showSpinner(node, mode)
@@ -1733,12 +1924,12 @@
     replaceBtn.disabled=true
 
     // #microcard testing
-    /*
+    
     setTimeout(() => {
      updateOutputDisplayUI("we are windows")
       
     }, 2000);
-    */
+    
     return
     
   }
@@ -1865,137 +2056,216 @@ function easeOutMicroCard(){
   // === Inject Styles === //
   const floatingRefinePopupStyle = document.createElement("style");
   floatingRefinePopupStyle.textContent = `
+    /* === CONTAINER CARD === */
     .tsMicrocard {
-      position: absolute; /* do not stay fixed on screen */
-      background: white;
-      border: 1px solid #ccc;
+      position: absolute;
+      background: #F8F9FA;
+      color: #222;
+      border: 1px solid #D0D0D0;
       border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
       padding: 16px;
+      width: 380px;
       z-index: 1000;
-      font-family: sans-serif;
-      width: 320px;
-      transition: opacity 0.2s ease;
-      /*overflow: hidden;*/
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      transform: translateY(8px);
+      opacity: 0;
+      animation: tsFadeUp 0.25s ease forwards;
     }
 
+    @media (prefers-color-scheme: dark) {
+      .tsMicrocard {
+        background: #1E1E1E;
+        color: #EAEAEA;
+        border: 1px solid #3A3A3A;
+      }
+    }
+
+    @keyframes tsFadeUp {
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    /* === CLOSE BUTTON === */
     .tsCloseButton {
-      position: absolute; /* positions relative to the card box */
+      position: absolute;
       top: 8px;
       right: 10px;
       background: none;
       border: none;
-      color: #888;
+      color: #777;
       font-size: 18px;
       cursor: pointer;
       line-height: 1;
-      transition: color 0.2s ease;
-      margin-botton:4px;
+      transition: color 0.2s ease, transform 0.3s ease;
     }
 
     .tsCloseButton:hover {
-      color: #333;
+      color: #6C63FF;
+      transform: rotate(90deg) scale(1.1);
     }
 
+    /* === CHIP SECTION === */
     .tsChipContainer {
-      display: none; // by default is none. will be set to flex to disply
+      display: none;
       gap: 8px;
       flex-wrap: wrap;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
 
     .tsChip {
-      background: #f0f0f0;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 20px;
+      background: #E9ECEF;
+      color: #333;
+      border: 1px solid #D0D0D0;
+      padding: 5px 12px;
+      border-radius: 18px;
       cursor: pointer;
-      transition: background 0.2s;
+      font-size: 13px;
+      transition: background 0.2s ease, transform 0.1s ease;
     }
 
-    .tsChip:hover { background: #e0e0e0; }
-    .tsChip.tsActive { background: #007bff; color: white; }
+    .tsChip:hover {
+      background: #E0E0FF;
+      transform: scale(1.03);
+    }
 
+    .tsChip.tsActive {
+      background: #6C63FF;
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 0 4px rgba(108,99,255,0.4);
+    }
+
+    /* === TEXT CONTAINERS === */
     .tsOutputContainer {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
     }
 
+    /* ORIGINAL TEXT — contextual reference */
     .tsOriginalText {
-      opacity: 0.5;
-      font-size: 14px;
-      border-bottom: 1px dashed #ccc;
-      padding-bottom: 6px;
-      max-height: 6.5em; /* ~5 lines */
+      background: #E9ECEF;
+      border-radius: 8px;
+      border-left: 3px solid #6C63FF;
+      padding: 10px 12px;
+      font-style: italic;
+      color: #555;
+      opacity: 0.85;
+      max-height: 6.5em;
       overflow: hidden;
       position: relative;
-      cursor: pointer;
       transition: max-height 0.3s ease;
-      margin-bottom: 6px;
-      margin-top: 20px;
+      margin-top: 16px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .tsOriginalText {
+        background: #2A2A2A;
+        color: #BBB;
+      }
     }
 
     .tsOriginalText::after {
       content: "Show more";
       position: absolute;
       bottom: 0;
-      right: 0;
-      background: linear-gradient(to left, white 50%, transparent);
-      color: #007bff;
+      right: 10px;
+      background: linear-gradient(to left, #F8F9FA 50%, transparent);
+      color: #6C63FF;
       font-size: 12px;
       padding-left: 20px;
       cursor: pointer;
     }
 
+    @media (prefers-color-scheme: dark) {
+      .tsOriginalText::after {
+        background: linear-gradient(to left, #1E1E1E 50%, transparent);
+      }
+    }
+
     .tsOriginalText.expanded {
       max-height: none;
+      cursor: zoom-out;
     }
 
     .tsOriginalText.expanded::after {
       content: "Show less";
     }
 
-
+    /* REWRITTEN TEXT — focus content */
     .tsRewrittenText {
-      opacity: 1;
-      font-size: 15px;
-      position: relative;
-      min-height: 40px;
+      background: #E6E0FF;
+      border-radius: 8px;
+      border-left: 3px solid #6C63FF;
+      padding: 12px 14px;
+      color: #1E1E1E;
+      font-weight: 500;
+      line-height: 1.55;
+      transition: background 0.25s ease, box-shadow 0.25s ease;
     }
 
+    .tsRewrittenText:hover {
+      background: #DDD7FF;
+      box-shadow: 0 0 6px rgba(108,99,255,0.25);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .tsRewrittenText {
+        background: #2F274D;
+        color: #EAEAEA;
+      }
+
+      .tsRewrittenText:hover {
+        background: #3A3160;
+      }
+    }
+
+    /* === CAPTION === */
     .tsCaption {
       font-size: 12px;
-      color: #666;
+      color: #6C757D;
       text-align: right;
-    }
-
-    .tsActionBar {
-      display: none; // by default none. will be set to flex
-      justify-content: space-between;
       margin-top: 8px;
     }
 
+    @media (prefers-color-scheme: dark) {
+      .tsCaption {
+        color: #A0A0A0;
+      }
+    }
+
+    /* === ACTION BAR === */
+    .tsActionBar {
+      display: none;
+      justify-content: space-between;
+      margin-top: 12px;
+      gap: 10px;
+    }
+
     .tsActionButton {
-      background: #f0f0f0;
+      background: #6C63FF;
+      color: white;
       border: none;
       border-radius: 6px;
-      padding: 5px 10px;
+      padding: 6px 14px;
       cursor: pointer;
-      transition: background 0.2s;
       font-size: 13px;
+      font-weight: 500;
+      transition: background 0.25s ease, transform 0.1s ease;
     }
 
-    .tsActionButton:hover { background: #e0e0e0; }
-
-    .tsOriginalText,
-    .tsRewrittenText {
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: 8px;
-      padding: 8px 10px;
-      background: #fafafa;
+    .tsActionButton:hover {
+      background: #5148E0;
+      transform: scale(1.04);
     }
 
+    /* === SPINNER === */
     #tsSpinnerContainer {
       position: absolute;
       top: 50%;
@@ -2004,28 +2274,34 @@ function easeOutMicroCard(){
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center; 
-      text-align: center;
+      justify-content: center;
       gap: 12px;
     }
 
     .tsSpinner {
-      width: 20px;
-      height: 20px;
-      border: 4px solid #f3f3f3;
-      border-top: 4px solid #b388ff;
-      border-radius: 70%;
+      width: 24px;
+      height: 24px;
+      border: 4px solid rgba(0,0,0,0.1);
+      border-top: 4px solid #6C63FF;
+      border-radius: 50%;
       animation: ts-spin 0.8s linear infinite;
-      z-index: 999999;
       display: none;
     }
-    /* Keyframes for spin */
+
+    @media (prefers-color-scheme: dark) {
+      .tsSpinner {
+        border: 4px solid rgba(255,255,255,0.1);
+        border-top-color: #6C63FF;
+      }
+    }
+
     @keyframes ts-spin {
       to { transform: rotate(360deg); }
     }
-
-
   `;
+
+
+
   document.head.appendChild(floatingRefinePopupStyle);
 
   //createModePresetCard()
