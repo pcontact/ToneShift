@@ -151,7 +151,7 @@
 
     /* Inner quoted content */
     .ts-preview-text-highlight {
-      padding: 12px;
+      padding: 5px;
       border-radius: 4px;
       line-height: 1.6;
       font-size: 0.95rem;
@@ -175,9 +175,6 @@
         color: #f0eaff;
       }
     }
-
-
-
 
     /* Spinner styling */
   .ts-await-rewrite-spinner {
@@ -1834,37 +1831,49 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     document.body.appendChild(card);
     refineMicroCard = card; // store reference for later usage/removal
 
-    //const lastUsed = localStorage.getItem("tsLastMode");
-    //const { tsLastMode: lastUsed } = await chrome.storage.local.get("tsLastMode");
+    // Card positioning logic
+    const cardWidth = 380; // match CSS width
+    const cardHeight = 150; // approximate; could measure dynamically
 
-    //if (lastUsed) {
-      //showSpinnerThenRewrite(card, originalText, lastUsed);
-    //} else {
-      //buildModeSelectionUI(card, originalText);
-    //}
-
-    // === Positioning Logic === //
     if (rect && rect.width > 0) {
-      console.log("Positioning card near selection:", rect);
-      const scrollY = window.scrollY || document.documentElement.scrollTop;
-      const scrollX = window.scrollX || document.documentElement.scrollLeft;
-      const top = rect.top + scrollY - 10;
-      const left = rect.left + scrollX + rect.width / 2;
-      //card.style.top = `${top}px`;
-      //card.style.left = `${left}px`;
-      
-      card.style.top = (rect.bottom + window.scrollY + 10) + 'px';
-      card.style.left = (rect.left + window.scrollX) + 'px';
-      //card.style.transform = "translate(-50%, -100%)";
+      let top = rect.bottom + window.scrollY + 10;
+      let left = rect.left + window.scrollX;
+
+      // Adjust if card would overflow bottom of viewport
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+
+      if (top + cardHeight > window.scrollY + viewportHeight) {
+        top = rect.top + window.scrollY - cardHeight - 10; // position above selection
+      }
+
+      // Adjust if card would overflow right edge
+      if (left + cardWidth > window.scrollX + viewportWidth) {
+        left = window.scrollX + viewportWidth - cardWidth - 10;
+      }
+
+      // Adjust if card would overflow left edge
+      if (left < 10) {
+        left = 10;
+      }
+
+      card.style.top = `${top}px`;
+      card.style.left = `${left}px`;
     } else {
-      // Fallback center position
+      // Fallback center
       card.style.top = "40%";
       card.style.left = "50%";
       card.style.transform = "translate(-50%, -50%)";
     }
 
+
     // Track anchor position
     const anchorY = rect ? rect.top + window.scrollY : window.innerHeight * 0.4;
+
+    // Hover tracking
+    let isMouseOverCard = false;
+    card.addEventListener('mouseenter', () => (isMouseOverCard = true));
+    card.addEventListener('mouseleave', () => (isMouseOverCard = false));
 
     // Fade-out function
     function gracefullyRemoveCard() {
@@ -1878,19 +1887,32 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       }, 300);
     }
 
-    // Scroll listener: fade out if scrolled 300px away
+    // Scroll listener: fade out only if scrolled away AND not hovering
     function handleScroll() {
       const currentY = window.scrollY;
-      if (Math.abs(currentY - anchorY) > 200) {
+      if (Math.abs(currentY - anchorY) > 200 && !isMouseOverCard) {
         window.removeEventListener('scroll', handleScroll);
         window.removeEventListener('selectionchange', handleSelection);
         gracefullyRemoveCard();
       }
     }
 
+    // Optional: re-enable scroll listener when mouse leaves
+    function handleMouseLeave() {
+      // if user scrolled while hovering, we re-check immediately upon leaving
+      if (Math.abs(window.scrollY - anchorY) > 200) {
+        window.removeEventListener('scroll', handleScroll);
+        window.removeEventListener('selectionchange', handleSelection);
+        gracefullyRemoveCard();
+      }
+    }
+
+
+
     // Selection listener: fade out on new highlight
-    function handleSelection() {
+    function handleSelection(event) {
       const sel = window.getSelection();
+      if (card.contains(event.target)) return; // ignore if selection change originated inside card
       if (sel && sel.toString().trim().length > 0) {
         window.removeEventListener('scroll', handleScroll);
         window.removeEventListener('selectionchange', handleSelection);
@@ -1909,11 +1931,16 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     window.addEventListener('scroll', handleScroll);
     document.addEventListener('selectionchange', handleSelection);
 
+    card.addEventListener('mouseleave', handleMouseLeave);
+
     // 🧹 Centralized cleanup function
     function cleanupListeners() {
       window.removeEventListener("scroll", handleScroll);
       document.removeEventListener("selectionchange", handleSelection);
       document.removeEventListener("mousedown", handleClickOutside);
+      card.removeEventListener('mouseenter', () => (isMouseOverCard = true));
+      card.removeEventListener('mouseleave', () => (isMouseOverCard = false));
+      card.removeEventListener('mouseleave', handleMouseLeave);
     }
 
     return card
@@ -1962,7 +1989,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     performPreview(rewriteMapKey)
     
-    const node = card.querySelector(".tsRewrittenText")
+    const node = card.querySelector(".tsOriginalText")
     showSpinner(node, mode)
 
     const allChips = card.querySelectorAll(".tsChip");
@@ -2005,6 +2032,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     const spinnerText = document.createElement("div")
     spinnerText.id = "tsSpinnerText"
+    spinner.style.color = "#ffffffff"
     spinnerText.textContent = getSpinnerText
     spinnerContainer.appendChild(spinnerText)
     spinnerContainer.appendChild(spinner)
@@ -2037,6 +2065,67 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     rewrittenEl.className = "tsRewrittenText";
     rewrittenEl.textContent = "";
     microcardRewrittenEl = rewrittenEl
+    
+    // Action buttons (copy, adjust tone)
+    const textActionButton = document.createElement("div");
+    textActionButton.className = "tsTextActions";
+    
+    const copyIconButton = document.createElement("button");
+    copyIconButton.className = "tsIconButton";
+    copyIconButton.title = "Copy rewritten text";
+    copyIconButton.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round" class="feather feather-copy">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>`;
+
+    // Add event listener for copying
+    copyIconButton.addEventListener("click", () => {
+      const text = rewrittenEl.textContent.trim();
+      if (!text.length) return;
+
+      navigator.clipboard.writeText(text)
+        .then(() => {
+          // Visual feedback
+          copyIconButton.classList.add("copied");
+          copyIconButton.textContent = "Copied!";
+
+          // Revert to copy icon after delay
+          setTimeout(() => {
+            copyIconButton.classList.remove("copied");
+            copyIconButton.innerHTML = `
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"
+              class="feather feather-copy">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>`;
+          }, 1200);
+        })
+        .catch(err => {
+          console.error("Copy failed:", err);
+          alert("Could not copy text.");
+        });
+    });
+
+
+    const adjustToneButton  = document.createElement("button");
+    adjustToneButton.className = "tsIconButton"; 
+    adjustToneButton.id = "tsChangeModeButton"
+    adjustToneButton.title = "Adjust tone/style";
+    adjustToneButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-sliders"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="10"></line><line x1="20" y1="6" x2="20" y2="3"></line></svg>`;
+    adjustToneButton.onclick = () => {
+      const modeCard = card.querySelector(".tsChipContainer")
+      modeCard.style.display = "flex"
+      const self = document.querySelector("#tsChangeModeButton")
+      self.style.display = "none"
+    };
+
+    textActionButton.appendChild(copyIconButton);
+    textActionButton.appendChild(adjustToneButton);
 
     const caption = document.createElement("div");
     caption.className = "tsCaption";
@@ -2051,6 +2140,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       applyInlinePreview(rewrittenEl.textContent, rewriteMapKey)
       easeOutMicroCard()
     });
+    btnReplace.textContent = "Apply Rewrite";
 
     const btnUndo = createActionButton("Undo", () =>{
       if(typeof rewriteMapKey !== "string") return
@@ -2066,9 +2156,10 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       const self = document.querySelector("#tsChangeModeButton")
       self.style.display = "none"
     });
+    btnChange.textContent = "Adjust Tone/Style";
 
     const modeSelectionCard = await buildModeSelectionCard(refineMicroCard, rewriteMapKey)
-    actionBar.append(modeSelectionCard,btnReplace, btnUndo, btnChange);
+    actionBar.append(modeSelectionCard, btnReplace);
 
     // Create close ("X") button positioned at the top-right
     const btnClose = document.createElement('button');
@@ -2079,21 +2170,46 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       card.style.opacity = '0';
       setTimeout(() => card.remove(), 300);
     };
-
     // Append to card
     card.prepend(btnClose);
 
-    showSpinner(rewrittenEl, mode)
-    outputContainer.append(originalEl, rewrittenEl, caption, actionBar);
+    showSpinner(originalEl, mode)
+    
+    const tsTextFlexContainer = document.createElement("div");
+    tsTextFlexContainer.className = "tsTextFlexContainer";
+
+    const leftContainer = document.createElement("div");
+    leftContainer.className = "tsLeftContainer";
+    
+    const leftLabel = document.createElement("div");
+    leftLabel.className = "tsTextLabel";
+    leftLabel.textContent = "Original";
+    leftContainer.appendChild(leftLabel);
+    leftContainer.appendChild(originalEl);
+
+    const rewrittenBlock = document.createElement("div");
+    rewrittenBlock.className = "tsRewrittenBlock";
+
+    const rightLabel = document.createElement("div");
+    rightLabel.className = "tsTextLabel";
+    rightLabel.textContent = "🧠 AI Rewrite" //+ (mode || "");
+    rewrittenBlock.appendChild(rightLabel);
+    rewrittenBlock.appendChild(rewrittenEl);
+    rewrittenBlock.appendChild(textActionButton);
+
+    tsTextFlexContainer.appendChild(leftContainer);
+    tsTextFlexContainer.appendChild(rewrittenBlock);
+
+    outputContainer.append(tsTextFlexContainer, caption, actionBar);
     card.appendChild(outputContainer);
   }
 
-function easeOutMicroCard(){
-    refineMicroCard.style.transition = 'opacity 0.3s ease';
-    refineMicroCard.style.opacity = '0';
-    setTimeout(() => {
-      refineMicroCard.remove()
-    }, 300);
+  function easeOutMicroCard(){
+      refineMicroCard.style.transition = 'opacity 0.3s ease';
+      refineMicroCard.style.opacity = '0';
+      setTimeout(() => {
+        refineMicroCard.remove()
+      }, 300);
   }
 
   // === Action Handlers === //
@@ -2115,17 +2231,30 @@ function easeOutMicroCard(){
       color: #222;
       border: 1px solid #D0D0D0;
       border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
       padding: 16px;
-      width: 380px;
+      width: 480px;
+      max-width: calc(100vw - 32px); /* prevent overflowing horizontally */
       z-index: 1000;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.5;
-      transition: opacity 0.25s ease, transform 0.25s ease;
+      transition: opacity 0.25s ease, transform 0.25s ease, top 0.2s ease, left 0.2s ease;
       transform: translateY(8px);
       opacity: 0;
       animation: tsFadeUp 0.25s ease forwards;
+      overflow-wrap: break-word;
+    }
+
+    @keyframes tsFadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     @media (prefers-color-scheme: dark) {
@@ -2136,12 +2265,6 @@ function easeOutMicroCard(){
       }
     }
 
-    @keyframes tsFadeUp {
-      to {
-        transform: translateY(0);
-        opacity: 1;
-      }
-    }
 
     /* === CLOSE BUTTON === */
     .tsCloseButton {
@@ -2192,6 +2315,13 @@ function easeOutMicroCard(){
       border-color: transparent;
       box-shadow: 0 0 4px rgba(108,99,255,0.4);
     }
+    .tsChip:disabled {
+      cursor: not-allowed;
+    }
+    .tsChip:disabled:hover {
+      background: #AAA;
+      transform: none;  
+    }
 
     /* === TEXT CONTAINERS === */
     .tsOutputContainer {
@@ -2213,7 +2343,7 @@ function easeOutMicroCard(){
       overflow: hidden;
       position: relative;
       transition: max-height 0.3s ease;
-      margin-top: 16px;
+      /* margin-top: 16px; */
     }
 
     @media (prefers-color-scheme: dark) {
@@ -2250,8 +2380,19 @@ function easeOutMicroCard(){
       content: "Show less";
     }
 
+    .tsRewrittenBlock {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      position: relative;
+      width: 100%;
+      boxsizing: border-box;
+    }
+
     /* REWRITTEN TEXT — focus content */
     .tsRewrittenText {
+      /* position: relative; */
       background: #E6E0FF;
       border-radius: 8px;
       border-left: 3px solid #6C63FF;
@@ -2260,6 +2401,11 @@ function easeOutMicroCard(){
       font-weight: 500;
       line-height: 1.55;
       transition: background 0.25s ease, box-shadow 0.25s ease;
+      min-height: 24px; /* optional but recommended */
+      flex:1;
+      width:auto;
+      box-sizing: border-box;
+
     }
 
     .tsRewrittenText:hover {
@@ -2267,6 +2413,85 @@ function easeOutMicroCard(){
       box-shadow: 0 0 6px rgba(108,99,255,0.25);
     }
 
+    /* Action buttons container */
+    .tsTextActions {
+      display: flex;
+      gap: 6px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(4px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      justify-content: flex-end; /* add this */
+      width: 100%; /* add this */
+
+    }
+
+    /* Show when parent is hovered */
+    .tsRewrittenBlock:hover .tsTextActions {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    /* Individual buttons */
+    .tsIconButton {
+      background: #6C63FF;
+      border: none;
+      color: white;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      cursor: pointer;
+      opacity: 0;
+      transform: translateY(4px);
+      animation: none;
+    }
+
+    /* Add staggered entrance */
+    .tsRewrittenBlock:hover .tsIconButton {
+      animation: tsIconFadeIn 0.35s forwards ease-out;
+    }
+
+    .tsRewrittenBlock:hover .tsIconButton:nth-child(2) {
+      animation-delay: 0.1s;
+    }
+
+    /* Hover style for buttons */
+    .tsIconButton:hover {
+      background: #554fcf;
+    }
+
+    /* Animation keyframes */
+    @keyframes tsIconFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .tsIconButton.copied {
+      width: auto;               /* Let it expand to fit text */
+      height: auto;
+      padding: 4px 10px;         /* Give breathing room */
+      border-radius: 12px;       /* Less round, more pill-shaped */
+      background: #4CAF50;       /* Success green */
+      font-weight: 600;
+      opacity: 1;
+      transform: scale(1.05);
+    }
+    .tsIconButton.copied:hover {
+      background: #4CAF50;
+    }
+
+    /* Dark mode adjustments */
     @media (prefers-color-scheme: dark) {
       .tsRewrittenText {
         background: #2F274D;
@@ -2275,6 +2500,15 @@ function easeOutMicroCard(){
 
       .tsRewrittenText:hover {
         background: #3A3160;
+      }
+
+      .tsIconButton {
+        background: #8378FF;
+        color: #1E1E1E;
+      }
+
+      .tsIconButton:hover {
+        background: #9A91FF;
       }
     }
 
@@ -2299,6 +2533,17 @@ function easeOutMicroCard(){
       margin-top: 12px;
       gap: 10px;
     }
+    .tsActionBar {
+      display: flex;
+      justify-content: flex-start; /* children start from left */
+      gap: 10px;
+      transition: all 0.3s ease;  /* optional for smooth container changes */
+    }
+    .tsActionBar button:not(#tsReplaceButton) {
+      flex: 1 1 auto;          /* grow and shrink as needed */
+      min-width: 60px;         /* optional minimum width */
+      transition: flex 0.3s ease, width 0.3s ease;  /* smooth size changes */
+    }
 
     .tsActionButton {
       background: #6C63FF;
@@ -2320,6 +2565,10 @@ function easeOutMicroCard(){
     /* === SPINNER === */
     #tsSpinnerContainer {
       position: absolute;
+      //background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(1px);
+      width: 100%;
+      height: 100%;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
@@ -2327,7 +2576,7 @@ function easeOutMicroCard(){
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 12px;
+      gap: 8px;
     }
 
     .tsSpinner {
@@ -2350,9 +2599,68 @@ function easeOutMicroCard(){
     @keyframes ts-spin {
       to { transform: rotate(360deg); }
     }
+
+    /* === FLEX CONTAINER FOR ORIGINAL + REWRITTEN === */
+    .tsTextFlexContainer {
+      display: flex;
+      align-items: flex-start;
+      width: 100%;
+      height: 100%;
+      margin-top: 16px;
+      box-sizing: border-box;
+    }
+
+    .tsTextFlexContainer > div {
+      flex: 1;
+      box-sizing: border-box;
+    }
+
+    .tsTextFlexContainer > div:not(:last-child) {
+      margin-right: 16px;
+    }
+
+    /* Responsive behavior: stack children vertically on small screens */
+    @media (max-width: 600px) {
+      .tsTextFlexContainer {
+        flex-direction: column;
+      }
+        
+      .tsTextFlexContainer > div:not(:last-child) {
+        margin-right: 0;
+        margin-bottom: 16px;
+      }
+    }
+
+    #tsReplaceButton:disabled {
+      background: #AAA !important;
+      cursor: not-allowed;
+    }
+    #tsReplaceButton:hover:disabled {
+      background: #AAA !important;
+      transform: none !important;
+    }
+
+    #tsReplaceButton {
+      margin-left: auto;       /* push to far right */
+      width: 100px;            /* fixed width */
+      height: 36px;            /* fixed height */
+      flex-shrink: 0;          /* prevents shrinking */
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.3s ease, transform 0.3s ease; /* smooth hover/copy */
+    }
+
+    .tsActionButton:disabled {
+      background: #AAA !important;
+      cursor: not-allowed;
+    }
+    .tsActionButton:disabled:hover {
+      background: #AAA !important;
+      cursor: not-allowed;
+      transform: none !important;
+    }
   `;
-
-
 
   document.head.appendChild(floatingRefinePopupStyle);
 
@@ -2369,34 +2677,45 @@ function easeOutMicroCard(){
   }
 
   //updateOutputDisplayUI
-  function updateOutputDisplayUI(rewrittenText){
-    // hide spinner
-
+  function updateOutputDisplayUI(rewrittenText, success=true){
     const microcard = document.querySelector(".tsMicrocard")
     console.log(microcard)
     if(!microcard) return
 
     const el = microcard.querySelector(".tsRewrittenText")
-    el.textContent = rewrittenText
+    setOwnText(el, rewrittenText)
+    const spinner = microcard.querySelector("#tsSpinnerContainer")
+    if(spinner) spinner.style.display = "none"
 
+    if (success){
+      const actionBar = microcard.querySelector(".tsActionBar")
+      actionBar.style.display = "flex"
 
-    const actionBar = microcard.querySelector(".tsActionBar")
-    actionBar.style.display = "flex"
+      const allChips = microcard.querySelectorAll(".tsChip");
+      allChips.forEach((c) => {
+        if(c.classList.contains("tsActive")){
+          const modeCaption = microcard.querySelector(".tsCaption")
+          modeCaption.textContent = c.textContent
+          ? `${c.textContent} version — Local AI`
+          : "AI generated (local).";
+        }
+        c.disabled = false
+      });
 
-    const allChips = microcard.querySelectorAll(".tsChip");
-    allChips.forEach((c) => {
-      if(c.classList.contains("tsActive")){
-        const modeCaption = microcard.querySelector(".tsCaption")
-        modeCaption.textContent = c.textContent
-        ? `${c.textContent} version — Local AI`
-        : "AI generated (local).";
-      }
-      c.disabled = false
-    });
-
-    
-    const replaceBtn = microcard.querySelector("#tsReplaceButton")
-    replaceBtn.disabled=false
+      const replaceBtn = microcard.querySelector("#tsReplaceButton")
+      replaceBtn.disabled=false
+      replaceBtn.style.display = "flex"
+    }
   }
+
+  function setOwnText(el, text) {
+    let textNode = [...el.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    if (textNode) {
+      textNode.nodeValue = text;
+    } else {
+      el.insertBefore(document.createTextNode(text), el.firstChild);
+    }
+  }
+
 
 })();
