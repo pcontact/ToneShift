@@ -1,147 +1,116 @@
-(function() {
-  let extractionDone = false;
-  let debounceTimer = null;
-  const MAX_WAIT = 5000;
-
-  /**
-   * --- Begin Readability 2.0 code ---
-   * Browser-native main content extraction
-   */
-
-  function linkDensity(node) {
-    const links = node.querySelectorAll("a");
-    const textLength = node.textContent.trim().length || 1;
-    let linkLength = 0;
-    links.forEach(a => linkLength += a.textContent.trim().length);
-    return linkLength / textLength;
+export function extractMainTextFromDocument(inputDocument) {
+  if (!inputDocument || !inputDocument.body) {
+    console.warn("extractMainTextFromDocument: Invalid document passed");
+    return "";
   }
 
-  function detectMainContent(document) {
-    const containers = Array.from(document.querySelectorAll("article, main, section, div"));
+  // --- Clone the document deeply to avoid touching the live DOM ---
+  const clonedDoc = inputDocument.cloneNode(true);
+  //console.log(clonedDoc.body.innerText)
+
+  // --- Helpers ---
+  function isBoilerplate(node) {
+    return /aside|nav|footer|header|sidebar|ads|advertisement/i.test(node.className || "");
+  }
+
+  function scoreNode(node) {
+    const textLength = node.textContent.trim().length;
+    if (textLength < 50) return 0;
+
+    const paragraphs = Math.max(node.querySelectorAll("p").length, 1);
+    const links = node.querySelectorAll("a").length;
+    const linkDensity = links / Math.max(textLength, 1);
+
+    let score = textLength * paragraphs * (1 - linkDensity);
+
+    const tag = node.tagName.toLowerCase();
+    if (tag === "article") score *= 1.5;
+    if (tag === "main") score *= 1.3;
+    if (tag === "section") score *= 1.2;
+
+    return score;
+  }
+
+  function detectMainContainer(document) {
+    const candidates = Array.from(document.querySelectorAll("article, main, section, div"))
+      .filter(node => !isBoilerplate(node));
+
+    let bestNode = null;
     let bestScore = 0;
-    let mainContainer = null;
 
-    containers.forEach(node => {
-      if (/aside|nav|footer|header|sidebar|ads|advertisement/i.test(node.className)) return;
-      const text = node.textContent.trim();
-      if (text.length < 50) return;
-
-      const links = node.querySelectorAll("a").length;
-      const paragraphs = node.querySelectorAll("p").length;
-      const ld = links / Math.max(text.length, 1);
-      let score = text.length * paragraphs * (1 - ld);
-
-      if (node.tagName.toLowerCase() === "article") score *= 1.5;
-      if (node.tagName.toLowerCase() === "main") score *= 1.3;
-
+    for (const node of candidates) {
+      const score = scoreNode(node);
       if (score > bestScore) {
         bestScore = score;
-        mainContainer = node;
+        bestNode = node;
       }
-    });
+    }
 
-    return mainContainer;
+    return bestNode;
   }
 
-  function detectAndMergeColumns(mainContainer) {
-    if (!mainContainer) return [];
+  function extractContentNodes(container) {
+    if (!container) return [];
+    const children = Array.from(container.children).filter(
+      c => !isBoilerplate(c) && c.textContent.trim().length > 30
+    );
 
-    const children = Array.from(mainContainer.children).filter(node => {
-      return !/aside|nav|footer|header|sidebar|ads|advertisement/i.test(node.className || "") &&
-             node.textContent.trim().length > 30;
-    });
+    if (children.length === 0) return [container];
 
-    const scoredChildren = children.map(node => {
-      const paragraphs = node.querySelectorAll("p").length;
-      const links = node.querySelectorAll("a").length;
-      const textLength = node.textContent.trim().length;
-      const ld = links / Math.max(textLength, 1);
-      let score = textLength * paragraphs * (1 - ld);
+    const scored = children.map(c => ({ node: c, score: scoreNode(c) }));
+    const threshold = Math.max(...scored.map(c => c.score)) * 0.3;
 
-      if (node.tagName.toLowerCase() === "article") score *= 1.5;
-      if (node.tagName.toLowerCase() === "section") score *= 1.2;
-
-      return { node, score };
-    });
-
-    const threshold = Math.max(...scoredChildren.map(c => c.score)) * 0.3;
-    return scoredChildren
+    return scored
       .filter(c => c.score >= threshold)
-      .sort((a, b) => (a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+      .sort((a, b) =>
+        a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+      )
       .map(c => c.node);
   }
 
   function nodeToMarkdown(node) {
     const tag = node.tagName?.toLowerCase();
+    if (!tag) return node.textContent.trim();
+
     if (/^h[1-6]$/.test(tag)) return `\n${"#".repeat(tag[1])} ${node.textContent.trim()}\n`;
-    if (tag === "p") return `${node.textContent.trim()}\n`;
+    if (tag === "p" || tag === "div") return `${node.textContent.trim()}\n`;
     if (tag === "li") return `- ${node.textContent.trim()}\n`;
-    if (tag === "pre" || tag === "code") return `\n\`\`\`\n${node.textContent.trim()}\n\`\`\`\n`;
+    if (tag === "pre" || tag === "code")
+      return `\n\`\`\`\n${node.textContent.trim()}\n\`\`\`\n`;
     if (tag === "figure") {
       const img = node.querySelector("img");
-      const caption = node.querySelector("figcaption")?.textContent.trim() || img?.alt || "";
+      const caption =
+        node.querySelector("figcaption")?.textContent.trim() || img?.alt || "";
       return caption ? `![${caption}](${img?.src || ""})\n` : "";
     }
 
     return Array.from(node.childNodes || [])
-      .map(child => child.nodeType === 3 ? child.textContent.trim() : nodeToMarkdown(child))
+      .map(child =>
+        child.nodeType === 3 ? child.textContent.trim() : nodeToMarkdown(child)
+      )
       .join("");
   }
 
-  function extractMainTextContent() {
-    const bodyClone = document.body.cloneNode(true);
-
+  // --- Main extraction pipeline ---
+  try {
+    const bodyClone = clonedDoc.body.cloneNode(true);
     ["script", "style", "noscript", "iframe", ".ads", ".advertisement"].forEach(sel => {
       bodyClone.querySelectorAll(sel).forEach(node => node.remove());
     });
 
-    const mainContainer = detectMainContent(bodyClone);
+    const mainContainer = detectMainContainer(bodyClone);
     if (!mainContainer) return "";
 
-    const columns = detectAndMergeColumns(mainContainer);
-    const markdown = columns.map(node => nodeToMarkdown(node)).join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+    const nodes = extractContentNodes(mainContainer);
+    const result = nodes
+      .map(nodeToMarkdown)
+      .join("\n\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
-    return markdown;
+    return result;
+  } catch (err) {
+    console.error("extractMainTextFromDocument failed:", err);
+    return "";
   }
-
-  /**
-   * --- End Readability 2.0 code ---
-   */
-
-  function extractMainText() {
-    try {
-      if (extractionDone) return;
-
-      const text = extractMainTextContent();
-
-      window.postMessage({
-        type: 'TONESHIFT_MAIN_TEXT',
-        text: text || null
-      }, '*');
-
-      extractionDone = true;
-      if (observer) observer.disconnect();
-      clearTimeout(timeoutTimer);
-
-    } catch (e) {
-      console.warn('Error extracting main text:', e);
-    }
-  }
-
-  const observer = new MutationObserver(() => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(extractMainText, 300);
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  const timeoutTimer = setTimeout(() => {
-    if (!extractionDone) {
-      console.warn("Main text extraction timed out.");
-      observer.disconnect();
-    }
-  }, MAX_WAIT);
-
-  // Initial extraction attempt
-  extractMainText();
-})();
+}

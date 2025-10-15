@@ -13,14 +13,13 @@
   hybridScript.type = "module"
   hybridScript.src = chrome.runtime.getURL("pageHybrid.js");
   document.documentElement.appendChild(hybridScript);
-  
-  const extractScript = document.createElement('script');
-  extractScript.src = chrome.runtime.getURL('utils/extractMainText.js');
-  extractScript.onload = () => console.log("Extraction script loaded");
-  document.documentElement.appendChild(extractScript);
+
+  const extractMainTextModule = await import(chrome.runtime.getURL('utils/extractMainText.js'));
 
   // add getRewriteContext.js
    const getRewriteContextModule = await import(chrome.runtime.getURL('utils/getRewriteContext.js'));
+
+   const chatPanelModule = await import(chrome.runtime.getURL('chatPanel.js'));
   //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
   
    // --- Floating icon CSS ---
@@ -218,6 +217,11 @@
   fPBContainer.appendChild(floatingPreviewBtn)
   document.body.appendChild(fPBContainer)
 
+  // Floating Lens Action container
+  const explainBtn = document.createElement("button")
+  explainBtn.textContent = "🔍 Help me Explain"
+  explainBtn.title = "Get a detailed explanation of the selected text."
+  fPBContainer.appendChild(explainBtn)
 
   // --- Sidebar host + shadow DOM ---
   const host = document.createElement("div");
@@ -631,7 +635,24 @@
     isMouseDownOnButton = false;
   });
 
+  explainBtn.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    expandSelectionToSentence()
+    const selection = window.getSelection();
+    chatPanelModule.openChatPanel(selection)
+    if (!chatPanelModule.isInputHandlerSet){ // we need only one input handler for this.
+      chatPanelModule.attachInputHandler(explainTextInputHelper)
+    }
+    
+  })
+
+  document.addEventListener("DOMContentLoaded", (e)=>{
+    mainText = extractMainTextModule.extractMainTextFromDocument(document)
+    console.log("Extracted main text: ", mainText)
+  })
+
   document.addEventListener('mousedown', (e) => {
+    //console.log(document.body.innerText)
     // Only hide if not clicking on the button itself
     if (!isMouseDownOnButton && !fPBContainer.contains(e.target)) {
       hideFloatingPreviewButton();
@@ -671,17 +692,6 @@
       }
     } else {
       hideFloatingPreviewButton();
-    }
-  });
-
-  // Listen for main text from page context
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
-    if (event.data.type && event.data.type === 'TONESHIFT_MAIN_TEXT') {
-      mainText = event.data.text;
-      if (mainText) {
-        console.log("Main Text Extracted:", mainText);
-      }
     }
   });
   
@@ -877,7 +887,7 @@
   // Floating button click handler - FIXED: Use stored state
   floatingPreviewBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    //console.log("Floating button clicked, stored range:", floatingButtonState.range);
+    //console.log("Maintext:", extractMainTextModule.extractMainTextFromDocument(document));
     
     if (floatingButtonState.range) {
       // Create a selection from the stored range
@@ -986,13 +996,11 @@
     };
 
     const pageId = window.location.href
-    const fullPageText = mainText
+    const fullPageText = extractMainTextModule.extractMainTextFromDocument(document)
     const selectedText = selectionText
-
-    const dummy = await getRewriteContextModule.getRewriteContext(pageId, fullPageText, selectedText);
-    //return
-    const _context = dummy //await getRewriteContextModule.getRewriteContext(pageId, fullPageText, selectedText);
-
+    //console.log("fullpage text: ", fullPageText)
+    const _context = await getRewriteContextModule.getRewriteContext(pageId, fullPageText, selectedText);
+    
     // Send to AI
     window.postMessage(
       {
@@ -2679,7 +2687,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   //updateOutputDisplayUI
   function updateOutputDisplayUI(rewrittenText, success=true){
     const microcard = document.querySelector(".tsMicrocard")
-    console.log(microcard)
+    //console.log(microcard)
     if(!microcard) return
 
     const el = microcard.querySelector(".tsRewrittenText")
@@ -2717,5 +2725,24 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     }
   }
 
+/* ChatPanel input handler */
+async function explainTextInputHelper(userText){
+  const addUserMessage = chatPanelModule.addUserMessage
+  const addAIResponse = chatPanelModule.addAIResponse
+  const sendToGemini = chatPanelModule.sendToGemini
+  if(!userText || userText.trim().length === 0) return
+  
+  sendToGemini(userText)
+
+  return
+  addUserMessage(userText)
+
+  // dummy ai response
+  setTimeout(() => {
+    addAIResponse("Echo: " + userText)
+  }, 1000);
+  
+  console.log("Help me explain: ", userText)
+}
 
 })();

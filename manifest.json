@@ -4,8 +4,10 @@
   "description": "Adapt web content dynamically: tone, complexity, brevity.",
   "version": "0.1",
   "permissions": ["scripting", "storage", "activeTab"],
+  "host_permissions": ["https://generativelanguage.googleapis.com/*"],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type":"module"
   },
   "content_scripts": [
     {
@@ -38,7 +40,8 @@
         "utils/extractMainText.js",
         "utils/getRewriteContext.js",
         "libs/Readability.js",
-        "../pageHybrid"
+        "../pageHybrid",
+        "chatPanel.js"
       ],
       "matches": ["<all_urls>"]
     }

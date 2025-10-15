@@ -68,7 +68,7 @@ export async function getRewriteContext(pageId, fullPageText, selectedText) {
 
   // Note: Use surrounding paragraphs as context due to summarizer token limit
   const context = getContextText(fullPageText, selectedText)
-  console.log("context: ", context)
+  //console.log("context: ", context)
   return context
 
   if (fullPageText.length < MAX_TOKENS) {
@@ -141,10 +141,11 @@ export function greet(pageText) {
  * @param {number} maxLength (defaults to your existing calculateTextLength(INPUT_TOKEN_LIMIT))
  * @returns {string} contextual snippet (or "" per edge-case rules)
  */
-function getContextText(fullText, selectedText, maxLength=calculateTextLength(INPUT_TOKEN_LIMIT)) {
+export function getContextText(fullText, selectedText, maxLength=calculateTextLength(INPUT_TOKEN_LIMIT)) {
+  //console.log("getContextText called")
   if (!fullText || !selectedText) {console.log("no full or selected text"); return ""};
-  console.log("full text length: ", fullText.length)
-  console.log("select text: ", selectedText)
+  //console.log("full text length: ", fullText.length)
+  //console.log("select text: ", selectedText)
 
   // Simple sentence splitter that keeps trailing punctuation (., ?, !).  It's not perfect,
   // but it's safer than splitting only on ".".
