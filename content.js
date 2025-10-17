@@ -408,8 +408,13 @@
       <hr>
       </div>
 
-      <button id="ts-advanced-toggle">⚙️ Advanced Options</button>
+      <div class="ts-toggle" title="Refine / Explain actions appear near selected text" style="margin-top:8px;">
+        <input type="checkbox" id="ts-show-floating" />
+        <label for="ts-show-floating" style="font-size:13px; margin-left:6px;">Show action buttons on text highlight</label>
+      </div>
+      <hr>
 
+      <button id="ts-advanced-toggle">⚙️ Advanced Options</button>
       <div id="ts-advanced-controls" style="display: none;">
         <div class="custom-modes-section" style="display:none">
         <label style="font-weight:600">Custom Modes:</label>
@@ -543,21 +548,47 @@
 
   // --- Text Selection and Floating Button Logic - COMPLETELY REWRITTEN ---
   function showFloatingPreviewButton(range, rect) {
+    // Centralized preference check: read user preference and only show if enabled
     if (!range || !rect) {
       hideFloatingPreviewButton();
       return;
     }
 
-    //console.log("Showing floating button at:", rect);
-    
-    // Store both range and rect for later use
-    floatingButtonState.range = range.cloneRange();
-    floatingButtonState.rect = rect;
+    try {
+      chrome.storage.local.get(['showFloatingOnHighlight'], (data) => {
+        const enabled = data && data.showFloatingOnHighlight;
+        // Default to true when unset
+        if (enabled === undefined || enabled === null || enabled === true) {
+          // Store both range and rect for later use
+          try {
+            floatingButtonState.range = range.cloneRange();
+          } catch (e) {
+            // cloneRange can fail on some exotic ranges; fall back to storing the original
+            floatingButtonState.range = range;
+          }
+          floatingButtonState.rect = rect;
 
-    // Position button near selection - FIXED: Use fixed positioning correctly
-    fPBContainer.style.top = (rect.bottom + window.scrollY + 10) + 'px';
-    fPBContainer.style.left = (rect.left + window.scrollX) + 'px';
-    fPBContainer.style.display = 'grid';
+          // Position button near selection - use fixed positioning correctly
+          fPBContainer.style.top = (rect.bottom + window.scrollY + 10) + 'px';
+          fPBContainer.style.left = (rect.left + window.scrollX) + 'px';
+          fPBContainer.style.display = 'grid';
+        } else {
+          hideFloatingPreviewButton();
+        }
+      });
+    } catch (err) {
+      // If storage isn't available for some reason, default to showing the button
+      console.error('Error reading showFloatingOnHighlight preference inside showFloatingPreviewButton', err);
+      try {
+        floatingButtonState.range = range.cloneRange();
+      } catch (e) {
+        floatingButtonState.range = range;
+      }
+      floatingButtonState.rect = rect;
+      fPBContainer.style.top = (rect.bottom + window.scrollY + 10) + 'px';
+      fPBContainer.style.left = (rect.left + window.scrollX) + 'px';
+      fPBContainer.style.display = 'grid';
+    }
 
     /*
     const n = fPBContainer.querySelector("#floating-mode-dropdown")
@@ -725,7 +756,7 @@
     const selection = window.getSelection();
     const selectedText = selection.toString().trim();
     
-    if (selectedText.length > 5) {
+  if (selectedText.length > 5) {
       //console.log("selected some text")
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
@@ -737,6 +768,7 @@
           // Re-check selection hasn't changed
           const currentSelection = window.getSelection();
           if (currentSelection.toString().trim() === selectedText) {
+            // Call the centralized show function which checks the preference internally
             showFloatingPreviewButton(range, rect);
           }
         }, 500);
@@ -1007,6 +1039,27 @@
           }
       });
   });
+
+  // --- Show floating preview preference wiring (query from sidebar shadow DOM) ---
+  const showFloatingCheckbox = qs('ts-show-floating');
+  if (showFloatingCheckbox) {
+    // Load saved preference; default to true
+    chrome.storage.local.get('showFloatingOnHighlight', (data) => {
+      if (data.showFloatingOnHighlight === undefined || data.showFloatingOnHighlight === null) {
+        showFloatingCheckbox.checked = true;
+      } else {
+        showFloatingCheckbox.checked = !!data.showFloatingOnHighlight;
+      }
+    });
+
+    showFloatingCheckbox.addEventListener('change', (e) => {
+      const enabled = !!e.target.checked;
+      chrome.storage.local.set({ showFloatingOnHighlight: enabled }, () => {
+        if (chrome.runtime.lastError) console.error('Error saving showFloatingOnHighlight', chrome.runtime.lastError);
+        console.log('showFloatingOnHighlight set to', enabled);
+      });
+    });
+  }
 
   // Load the saved state when the popup/page opens
   // This ensures the checkbox reflects the user's last choice

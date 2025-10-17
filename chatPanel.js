@@ -169,12 +169,12 @@ export function injectCSS() {
         box-shadow: 0 12px 28px rgba(38,32,63,0.08);
     }
 
-    /* === Paragraphs === */
-    .tsChatAIResponse p {
-        display: block !important;
-        margin: 0.75em 0 !important;
-        line-height: 1.6;
-    }
+  /* === Paragraphs === */
+  .tsChatAIResponse p {
+    display: block !important;
+    margin: 0.75em 0 !important;
+    line-height: 1.6;
+  }
 
     .tsChatAIResponse p:first-child { margin-top: 0 !important; }
     .tsChatAIResponse p:last-child { margin-bottom: 0 !important; }
@@ -381,8 +381,9 @@ export async function attachInputHandler(callback) {
         await callback(userText);
     };
 
-    input.onclick = e => { if (e.key === 'Enter') sendMessage(); };
-    sendBtn.onclick = sendMessage;
+  // Submit on Enter (keydown) and ensure clicks don't bubble to document (which may collapse the panel)
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
+  sendBtn.addEventListener('click', (e) => { e.stopPropagation(); sendMessage(); });
     isInputHandlerSet = true;
 }
 
@@ -722,31 +723,254 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
     finalPrompt = await summarizeToFit(finalPrompt, SAFE_INPUT_LIMIT - SYSTEM_BUDGET, "combined prompt");
   }
 
-  // Send to Gemini Nano
+  // Send to Gemini Nano using streaming port
   chatHistory.push({ role: "user", parts: [{ text: finalPrompt }] });
   chatHistory = trimHistory(chatHistory, MAX_TOKENS);
 
-  debugLog("Sending to Gemini...", {
-    totalTokens: estimateTokens(finalPrompt),
-    outputBudget: OUTPUT_BUDGET,
+  debugLog("Opening streaming port to Gemini...");
+  const port = chrome.runtime.connect({ name: 'gemini-stream' });
+
+  // track port lifecycle so cancel handler doesn't attempt to post to a dead port
+  let portAlive = true;
+  port.onDisconnect.addListener(() => {
+    portAlive = false;
+    // try to restore UI: enable input and swap back send button if cancel is present
+    try {
+      if (inputContainer) {
+        const currentBtn = inputContainer.querySelector('.tsChatSendBtn');
+        if (currentBtn && currentBtn.isConnected && currentBtn.textContent === '✖') {
+          if (originalSendBtn && originalSendBtn.isConnected) {
+            currentBtn.replaceWith(originalSendBtn);
+          } else {
+            currentBtn.remove();
+          }
+        }
+      }
+      if (inputField) inputField.disabled = false;
+    } catch (e) { /* ignore */ }
   });
 
-  const response = await chrome.runtime.sendMessage({
-    action: "askGemini",
-    text: finalPrompt,
-    history: chatHistory,
-  });
+  // Create placeholder AI message where streaming text will accumulate
+  const messages = document.querySelector('.tsChatPanelMessages');
+  const aiMsg = document.createElement('div');
+  aiMsg.className = 'tsChatAIResponse';
+  // include a cancel control while streaming
+  // We'll create a cancel button but place it by replacing the input send button
+  const cancelBtn = document.createElement('button');
+  // use same class as send button so it sits exactly where the send button was
+  cancelBtn.className = 'tsChatSendBtn';
+  cancelBtn.textContent = '✖';
+  cancelBtn.title = 'Cancel generation';
+  const thinking = document.createElement('div');
+  // Render plain text progressively while streaming to avoid malformed partial HTML
+  thinking.textContent = '…thinking';
+  aiMsg.appendChild(thinking);
+  messages.appendChild(aiMsg);
+  autoScroll();
 
-  if (response.error) {
-    addAIResponse("Something went wrong. Please try again.");
-    return;
+  let accumulated = '';
+  // generate a lightweight per-request id so multiple streams can be multiplexed
+  const reqId = 'req-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+
+  // Capture retry args so retry can re-run the same request
+  const _retryUserText = userText;
+  const _retryWithBuildPrompt = withBuildPrompt;
+  const _retryWithContext = withContext;
+
+  // Input controls we'll manipulate during streaming
+  const inputContainer = document.querySelector('.tsChatPanelInput');
+  const inputField = inputContainer ? inputContainer.querySelector('input') : null;
+  let originalSendBtn = null;
+  // spinner element to show when waiting for cancel to take effect
+  const spinner = document.createElement('span');
+  spinner.className = 'tsCancelSpinner';
+  spinner.style.marginLeft = '8px';
+  spinner.style.fontSize = '12px';
+  spinner.textContent = '';
+
+  // start the stream with the request id
+  try {
+    port.postMessage({ action: 'start', id: reqId, text: finalPrompt, history: chatHistory });
+  } catch (err) {
+    console.error('Failed to post start message to port', err);
   }
 
-  addAIResponse(response.reply);
-  chatHistory.push({ role: "model", parts: [{ text: response.reply }] });
-  chatHistory = trimHistory(chatHistory, MAX_TOKENS);
+  const onMsg = (m) => {
+    if (!m) return;
+    // ignore messages for other requests
+    if (m.id && m.id !== reqId) return;
 
-  debugLog("✅ Response received and stored.");
+    // handle explicit canceled notification from background
+    if (m.canceled) {
+      thinking.textContent = 'Canceled.';
+      try { if (spinner && spinner.parentNode) spinner.remove(); } catch (e) {}
+      try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
+      try { if (inputField) inputField.disabled = false; } catch (e) {}
+      port.onMessage.removeListener(onMsg);
+      addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, _retryWithContext);
+      return;
+    }
+
+    if (m.error) {
+      thinking.textContent = '⚠️ Error: ' + (m.error || 'Something went wrong');
+      // restore original send button if we swapped it, otherwise remove cancel
+      try {
+        if (spinner && spinner.parentNode) spinner.remove();
+        if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn);
+        else if (cancelBtn.isConnected) cancelBtn.remove();
+      } catch (e) {}
+      try { if (inputField) inputField.disabled = false; } catch (e) {}
+      try { port.disconnect(); } catch (e) {}
+      port.onMessage.removeListener(onMsg);
+      // add retry action on the aiMsg
+      addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, _retryWithContext);
+      return;
+    }
+
+    if (m.chunk) {
+      const wasEmpty = accumulated.length === 0;
+      accumulated += m.chunk;
+      // On the first chunk, hide the typing bubble and disable input (if not already)
+      if (wasEmpty) {
+        hideTypingBubble();
+        try { if (inputField) inputField.disabled = true; } catch (e) {}
+      }
+      // render plain text progressively to avoid malformed partial HTML
+      thinking.textContent = accumulated;
+      autoScroll();
+      return;
+    }
+
+    if (m.done) {
+      const final = (m.reply && m.reply.trim()) || accumulated;
+      // remove spinner if present
+      try { if (spinner && spinner.parentNode) spinner.remove(); } catch (e) {}
+      // restore original send button if we swapped it, otherwise remove cancel
+      try {
+        if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn);
+        else if (cancelBtn.isConnected) cancelBtn.remove();
+      } catch (e) {}
+      try { if (inputField) inputField.disabled = false; } catch (e) {}
+      // replace placeholder with final parsed HTML
+      aiMsg.innerHTML = simpleMarkdownToHTML(final);
+
+      // append copy button after finalization (reuse full UX from addAIResponse)
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'tsCopyBtn';
+      copyBtn.innerHTML = '📋';
+
+      const tooltip = document.createElement('span');
+      tooltip.className = 'tsCopyTooltip';
+      tooltip.textContent = 'Copy to clipboard';
+      copyBtn.appendChild(tooltip);
+
+      let resetTimeout = null;
+      let copiedNote = null;
+
+      async function handleCopy(e) {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(final);
+          if (resetTimeout) clearTimeout(resetTimeout);
+          if (copiedNote && copiedNote.isConnected) copiedNote.remove();
+
+          copyBtn.classList.add('tsCopied');
+          copyBtn.innerHTML = '✅';
+          copyBtn.appendChild(tooltip);
+
+          copiedNote = document.createElement('span');
+          copiedNote.className = 'tsCopiedText';
+          copiedNote.textContent = 'Copied!';
+          aiMsg.appendChild(copiedNote);
+
+          resetTimeout = setTimeout(() => {
+            if (copiedNote?.isConnected) copiedNote.remove();
+            copyBtn.classList.remove('tsCopied');
+            copyBtn.innerHTML = '📋';
+            copyBtn.appendChild(tooltip);
+          }, 1500);
+        } catch (err) {
+          console.error('Copy failed:', err);
+          copyBtn.innerHTML = '⚠️';
+          resetTimeout = setTimeout(() => {
+            copyBtn.innerHTML = '📋';
+            copyBtn.appendChild(tooltip);
+          }, 1200);
+        }
+      }
+
+      copyBtn.addEventListener('click', handleCopy);
+      aiMsg.appendChild(copyBtn);
+
+      // persist to chat history
+      chatHistory.push({ role: 'model', parts: [{ text: final }] });
+      chatHistory = trimHistory(chatHistory, MAX_TOKENS);
+
+      // cleanup
+      port.onMessage.removeListener(onMsg);
+      try { port.disconnect(); } catch (e) { /* ignore */ }
+    }
+  };
+
+  port.onMessage.addListener(onMsg);
+
+  // Replace the input send button with cancelBtn so the cancel appears in the exact same spot
+  // (originalSendBtn already declared above)
+  if (inputContainer) {
+    const sendBtn = inputContainer.querySelector('.tsChatSendBtn');
+    if (sendBtn) {
+      originalSendBtn = sendBtn;
+      try { sendBtn.replaceWith(cancelBtn); } catch (e) { /* ignore */ }
+    } else {
+      // If no send button exists, append the cancel btn so user can cancel
+      inputContainer.appendChild(cancelBtn);
+    }
+  }
+
+  // cancel button wiring (send cancel by id) — swap back to original send button when clicked
+  cancelBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    try {
+      // If the port is already disconnected, just restore UI and return
+      if (!portAlive) {
+        thinking.textContent = 'Canceled.';
+        try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
+        try { if (inputField) inputField.disabled = false; } catch (e) {}
+        return;
+      }
+      // show spinner/badge while waiting for the cancel to be processed
+      spinner.textContent = '⏳';
+      cancelBtn.appendChild(spinner);
+      cancelBtn.disabled = true;
+      port.postMessage({ action: 'cancel', id: reqId });
+    } catch (err) { console.error('Cancel request failed', err);
+      // restore UI on failure
+      thinking.textContent = 'Canceled.';
+      try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
+      try { if (inputField) inputField.disabled = false; } catch (e) {}
+    }
+    // visual feedback
+    thinking.textContent = 'Canceling…';
+  });
+
+  // Helper: add retry action to an ai message bubble
+  function addRetryAction(containerEl, uText, rebuild, useContext) {
+    // remove existing retry if present
+    const existing = containerEl.querySelector('.tsRetryBtn');
+    if (existing) return;
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'tsRetryBtn tsChatSendBtn';
+    retryBtn.textContent = 'Retry';
+    retryBtn.style.marginTop = '8px';
+    retryBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      // cleanup UI
+      try { if (retryBtn.isConnected) retryBtn.remove(); } catch (e) {}
+      // re-run sendToGemini with the same args
+      sendToGemini(uText, rebuild, useContext);
+    };
+    containerEl.appendChild(retryBtn);
+  }
 }
 
 // ==============================
