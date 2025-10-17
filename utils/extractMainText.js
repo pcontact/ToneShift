@@ -1,12 +1,24 @@
+let lastTextHash = null; // persistent hash memory
+
+function hashString(str) {
+  let hash = 0, i, chr;
+  if (str.length === 0) return hash;
+  for (i = 0; i < str.length; i++) {
+    chr = str.charCodeAt(i);
+    hash = (hash << 5) - hash + chr;
+    hash |= 0;
+  }
+  return hash;
+}
+
 export function extractMainTextFromDocument(inputDocument) {
   if (!inputDocument || !inputDocument.body) {
     console.warn("extractMainTextFromDocument: Invalid document passed");
-    return "";
+    return null;
   }
 
-  // --- Clone the document deeply to avoid touching the live DOM ---
+  // Clone to avoid side effects on live DOM
   const clonedDoc = inputDocument.cloneNode(true);
-  //console.log(clonedDoc.body.innerText)
 
   // --- Helpers ---
   function isBoilerplate(node) {
@@ -22,12 +34,10 @@ export function extractMainTextFromDocument(inputDocument) {
     const linkDensity = links / Math.max(textLength, 1);
 
     let score = textLength * paragraphs * (1 - linkDensity);
-
     const tag = node.tagName.toLowerCase();
     if (tag === "article") score *= 1.5;
     if (tag === "main") score *= 1.3;
     if (tag === "section") score *= 1.2;
-
     return score;
   }
 
@@ -99,7 +109,7 @@ export function extractMainTextFromDocument(inputDocument) {
     });
 
     const mainContainer = detectMainContainer(bodyClone);
-    if (!mainContainer) return "";
+    if (!mainContainer) return null;
 
     const nodes = extractContentNodes(mainContainer);
     const result = nodes
@@ -108,9 +118,17 @@ export function extractMainTextFromDocument(inputDocument) {
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
-    return result;
+    if (!result || result.length < 100) return null; // ignore tiny outputs
+
+    const newHash = hashString(result);
+    if (newHash !== lastTextHash) {
+      lastTextHash = newHash;
+      return result; // meaningful new content
+    }
+
+    return null; // no significant change
   } catch (err) {
     console.error("extractMainTextFromDocument failed:", err);
-    return "";
+    return null;
   }
 }

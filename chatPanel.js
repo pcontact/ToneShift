@@ -109,6 +109,95 @@ export function injectCSS() {
         box-shadow: 0 10px 24px rgba(108,99,255,0.18);
     }
 
+  /* --- Cancel button variant (uses same layout but different icon states) --- */
+  .tsCancelBtn {
+    background: #fff; /* neutral background so icon is clearly visible */
+    color: inherit;
+    padding: 6px;
+    box-shadow: 0 6px 16px rgba(108,99,255,0.06);
+    width: 40px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tsCancelBtn svg {
+    width: 16px; height: 16px; display: block;
+    transition: transform 0.09s ease, fill 0.12s ease, stroke 0.12s ease;
+    stroke: #000; fill: #000; visibility: visible;
+  }
+  .tsCancelBtn:hover svg { stroke: #e23b3b; fill: #e23b3b; transform: scale(1.05); }
+  .tsCancelBtn:hover { box-shadow: 0 8px 22px rgba(226,59,59,0.12); transform: translateY(-1px) scale(1.02); }
+  .tsCancelBtn:active svg { stroke: #b22222; fill: #b22222; transform: scale(0.96); }
+  .tsCancelBtn:active { transform: translateY(0) scale(0.96); }
+
+  /* Use data-URI SVG backgrounds as a fallback when inner SVGs are suppressed by 'all: unset' */
+  .tsCancelBtn {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 16px 16px;
+    /* black icon */
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='none' stroke='%23000' stroke-width='1.5'/><rect x='7' y='7' width='10' height='10' fill='%23000' rx='2' ry='2'/></svg>");
+  }
+  .tsCancelBtn:hover {
+    /* red icon on hover */
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='none' stroke='%23e23b3b' stroke-width='1.5'/><rect x='7' y='7' width='10' height='10' fill='%23e23b3b' rx='2' ry='2'/></svg>");
+  }
+  .tsCancelBtn:active {
+    /* darker red when active */
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='none' stroke='%23b22222' stroke-width='1.5'/><rect x='7' y='7' width='10' height='10' fill='%23b22222' rx='2' ry='2'/></svg>");
+  }
+
+  /* Cancel spinner shown inside the cancel button while cancel is processing */
+  .tsCancelSpinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(0,0,0,0.08);
+    border-top-color: #6C63FF; /* theme accent */
+    box-sizing: border-box;
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: tsSpin 0.9s linear infinite;
+  }
+
+  @keyframes tsSpin { to { transform: rotate(360deg); } }
+
+  /* Retry button - small pill that follows the primary theme */
+  .tsRetryBtn {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #fff;
+    color: #6C63FF;
+    border: 1px solid rgba(108,99,255,0.12);
+    padding: 6px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    box-shadow: 0 6px 16px rgba(108,99,255,0.06);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  }
+
+  .tsRetryBtn:hover { background: rgba(108,99,255,0.04); transform: translateY(-1px); box-shadow: 0 10px 20px rgba(108,99,255,0.12); }
+  .tsRetryBtn:active { transform: scale(0.98); }
+
+  /* Small, mild cancel note shown in AI bubble when user cancels */
+  .tsCancelNote {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(0,0,0,0.04);
+    color: #333;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1;
+  }
+
     /* --- Floating Bubble --- */
     .tsChatPanelBubble { 
         position: fixed; 
@@ -387,8 +476,56 @@ export async function attachInputHandler(callback) {
     isInputHandlerSet = true;
 }
 
+// Helper: create a fresh send button wired to the current input handler, or reattach the handler
+function createOrRestoreSendButton(callback) {
+  const inputContainer = document.querySelector('.tsChatPanelInput');
+  if (!inputContainer) return null;
+  // If there's already a send button, ensure it has the click handler
+  let sendBtn = inputContainer.querySelector('.tsChatSendBtn');
+  const input = inputContainer.querySelector('input');
+
+  const bindHandler = () => {
+    // remove any existing to avoid duplicate handlers
+    try { sendBtn?.replaceWith(sendBtn); } catch (e) { /* noop - used to normalize */ }
+    sendBtn.type = 'button';
+    // clear previous listeners by cloning if necessary
+    const newBtn = sendBtn.cloneNode(true);
+    newBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      callback(text);
+    });
+    try { sendBtn.replaceWith(newBtn); } catch (e) { /* ignore */ }
+    sendBtn = newBtn;
+    return sendBtn;
+  };
+
+  if (sendBtn) {
+    return bindHandler();
+  }
+
+  // create a new button if none exists
+  sendBtn = document.createElement('button');
+  sendBtn.type = 'button';
+  sendBtn.className = 'tsChatSendBtn';
+  sendBtn.innerHTML = '✈️';
+  sendBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    callback(text);
+  });
+  inputContainer.appendChild(sendBtn);
+  return sendBtn;
+}
+
 // ----------------- Panel Controls -----------------
-export function openChatPanel(highlightedText) {
+export function openChatPanel(highlightedText, context) {
     injectCSS();
     injectHTML();
     const panel = document.getElementById('tsChatPanelContainer');
@@ -410,7 +547,7 @@ export function openChatPanel(highlightedText) {
         });
     } else {
         const text = highlightedText.toString().trim();
-        sendToGemini(text, true, true);
+        sendToGemini(text, context, true);
     }
 
     updatePanelPosition();
@@ -594,9 +731,9 @@ const MAX_TOKENS = 4096; // model context window
 const MODEL_WINDOW = 1024; // Gemini Nano limit
 // Token Budgets
 const OUTPUT_BUDGET = 300;  // Reserved for model output
-const SYSTEM_BUDGET = 200;  // System + instructions
+const SYSTEM_BUDGET = 100;  // System + instructions
 const USER_BUDGET = 300;    // User text
-const CONTEXT_BUDGET = 200; // Context
+export const CONTEXT_BUDGET = 300; // Context
 const SAFE_INPUT_LIMIT = SYSTEM_BUDGET + USER_BUDGET + CONTEXT_BUDGET; // 700
 
 // Debug Mode Toggle
@@ -640,7 +777,8 @@ function getCompressionRatio(currentTokens, targetTokens) {
   return Math.max(ratio, 0.2);
 }
 
-async function summarizeToFit(text, targetTokens, label = "text") {
+export async function summarizeToFit(text, targetTokens, label = "text") {
+    console.log("Summarizing to fit:", { text, label, targetTokens });
   const current = estimateTokens(text);
   if (current <= targetTokens) {
     debugLog(`${label}: within budget (${current}/${targetTokens})`);
@@ -675,23 +813,10 @@ ${text}`;
 // ==============================
 // Main sendToGemini Function
 // ==============================
-export async function sendToGemini(userText, withBuildPrompt=false, withContext = false) {
+export async function sendToGemini(userText, context, withBuildPrompt = false) {
   if (!userText || typeof userText !== "string" || userText.trim().length === 0) return;
   addUserMessage(userText);
-
-  let context = "";
-
-  // Context extraction + summarization
-  if (withContext) {
-    const fullPageText = extractMainTextFromDocument(document);
-    context = getContextText(fullPageText, userText);
-    const contextTokens = estimateTokens(context);
-    debugLog(`Raw context tokens: ${contextTokens}`);
-
-    if (contextTokens > CONTEXT_BUDGET) {
-      context = await summarizeToFit(context, CONTEXT_BUDGET, "context");
-    }
-  }
+  //console.log("Sending to Gemini:", { userText, context, withBuildPrompt });
 
   // User text summarization
   const userTokens = estimateTokens(userText);
@@ -702,9 +827,9 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
   }
 
   // Build final prompt
-  let finalPrompt= userText
+  let finalPrompt = userText;
   if (withBuildPrompt) finalPrompt = buildPrompt(userText, context);
-
+  //console.log("Final prompt before context:", finalPrompt);
   // Compute total input tokens
   const totalTokens =
     estimateTokens(systemPrompt.parts[0].text) + estimateTokens(finalPrompt);
@@ -729,66 +854,80 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
 
   debugLog("Opening streaming port to Gemini...");
   const port = chrome.runtime.connect({ name: 'gemini-stream' });
-
-  // track port lifecycle so cancel handler doesn't attempt to post to a dead port
   let portAlive = true;
   port.onDisconnect.addListener(() => {
     portAlive = false;
-    // try to restore UI: enable input and swap back send button if cancel is present
     try {
       if (inputContainer) {
-        const currentBtn = inputContainer.querySelector('.tsChatSendBtn');
-        if (currentBtn && currentBtn.isConnected && currentBtn.textContent === '✖') {
-          if (originalSendBtn && originalSendBtn.isConnected) {
-            currentBtn.replaceWith(originalSendBtn);
-          } else {
-            currentBtn.remove();
-          }
-        }
+        createOrRestoreSendButton((text) => sendToGemini(userText, context, withBuildPrompt));
       }
       if (inputField) inputField.disabled = false;
     } catch (e) { /* ignore */ }
   });
 
-  // Create placeholder AI message where streaming text will accumulate
+  // Prepare AI message UI
   const messages = document.querySelector('.tsChatPanelMessages');
   const aiMsg = document.createElement('div');
   aiMsg.className = 'tsChatAIResponse';
-  // include a cancel control while streaming
-  // We'll create a cancel button but place it by replacing the input send button
   const cancelBtn = document.createElement('button');
-  // use same class as send button so it sits exactly where the send button was
-  cancelBtn.className = 'tsChatSendBtn';
-  cancelBtn.textContent = '✖';
+  cancelBtn.className = 'tsChatSendBtn tsCancelBtn';
   cancelBtn.title = 'Cancel generation';
+
+  // SVG stop icon
+  const svgns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Stop');
+  svg.style.cssText = 'width:16px;height:16px;display:block;vertical-align:middle;visibility:visible;stroke:#000;fill:#000;';
+
+  const circle = document.createElementNS(svgns, 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '12');
+  circle.setAttribute('r', '10');
+  circle.setAttribute('fill', 'none');
+  circle.setAttribute('stroke', '#000');
+  circle.setAttribute('stroke-width', '1.5');
+  circle.style.cssText = 'stroke:#000;fill:none;stroke-width:1.5px;';
+
+  const rect = document.createElementNS(svgns, 'rect');
+  rect.setAttribute('x', '7');
+  rect.setAttribute('y', '7');
+  rect.setAttribute('width', '10');
+  rect.setAttribute('height', '10');
+  rect.setAttribute('fill', '#000');
+  rect.setAttribute('rx', '2');
+  rect.setAttribute('ry', '2');
+  rect.style.cssText = 'fill:#000;';
+
+  svg.appendChild(circle);
+  svg.appendChild(rect);
+  cancelBtn.appendChild(svg);
+
   const thinking = document.createElement('div');
-  // Render plain text progressively while streaming to avoid malformed partial HTML
   thinking.textContent = '…thinking';
   aiMsg.appendChild(thinking);
   messages.appendChild(aiMsg);
   autoScroll();
 
   let accumulated = '';
-  // generate a lightweight per-request id so multiple streams can be multiplexed
   const reqId = 'req-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
 
-  // Capture retry args so retry can re-run the same request
   const _retryUserText = userText;
   const _retryWithBuildPrompt = withBuildPrompt;
-  const _retryWithContext = withContext;
 
-  // Input controls we'll manipulate during streaming
   const inputContainer = document.querySelector('.tsChatPanelInput');
   const inputField = inputContainer ? inputContainer.querySelector('input') : null;
   let originalSendBtn = null;
-  // spinner element to show when waiting for cancel to take effect
   const spinner = document.createElement('span');
   spinner.className = 'tsCancelSpinner';
   spinner.style.marginLeft = '8px';
   spinner.style.fontSize = '12px';
   spinner.textContent = '';
+  let cancelRequested = false;
 
-  // start the stream with the request id
   try {
     port.postMessage({ action: 'start', id: reqId, text: finalPrompt, history: chatHistory });
   } catch (err) {
@@ -796,24 +935,29 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
   }
 
   const onMsg = (m) => {
-    if (!m) return;
-    // ignore messages for other requests
-    if (m.id && m.id !== reqId) return;
+    if (!m || (m.id && m.id !== reqId)) return;
 
-    // handle explicit canceled notification from background
     if (m.canceled) {
-      thinking.textContent = 'Canceled.';
+      try { if (thinking && thinking.isConnected) thinking.textContent = 'Canceled.'; } catch (e) {}
+      showCancelNote(aiMsg, 'Canceled.');
+      cancelRequested = false;
       try { if (spinner && spinner.parentNode) spinner.remove(); } catch (e) {}
       try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
       try { if (inputField) inputField.disabled = false; } catch (e) {}
       port.onMessage.removeListener(onMsg);
-      addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, _retryWithContext);
+      setTimeout(() => { addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, context); try { if (thinking && thinking.isConnected) thinking.remove(); } catch (e) {} }, 2000);
       return;
     }
 
     if (m.error) {
-      thinking.textContent = '⚠️ Error: ' + (m.error || 'Something went wrong');
-      // restore original send button if we swapped it, otherwise remove cancel
+      if (cancelRequested) {
+        try { if (thinking && thinking.isConnected) thinking.textContent = 'Canceled.'; } catch (e) {}
+        showCancelNote(aiMsg, 'Canceled.');
+      } else {
+        try { if (thinking && thinking.isConnected) thinking.textContent = '⚠️ Error: ' + (m.error || 'Something went wrong'); } catch (e) {}
+      }
+      cancelRequested = false;
+      hideTypingBubble();
       try {
         if (spinner && spinner.parentNode) spinner.remove();
         if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn);
@@ -822,20 +966,17 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
       try { if (inputField) inputField.disabled = false; } catch (e) {}
       try { port.disconnect(); } catch (e) {}
       port.onMessage.removeListener(onMsg);
-      // add retry action on the aiMsg
-      addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, _retryWithContext);
+      if (!cancelRequested) addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, context);
       return;
     }
 
     if (m.chunk) {
       const wasEmpty = accumulated.length === 0;
       accumulated += m.chunk;
-      // On the first chunk, hide the typing bubble and disable input (if not already)
       if (wasEmpty) {
         hideTypingBubble();
         try { if (inputField) inputField.disabled = true; } catch (e) {}
       }
-      // render plain text progressively to avoid malformed partial HTML
       thinking.textContent = accumulated;
       autoScroll();
       return;
@@ -843,22 +984,14 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
 
     if (m.done) {
       const final = (m.reply && m.reply.trim()) || accumulated;
-      // remove spinner if present
       try { if (spinner && spinner.parentNode) spinner.remove(); } catch (e) {}
-      // restore original send button if we swapped it, otherwise remove cancel
-      try {
-        if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn);
-        else if (cancelBtn.isConnected) cancelBtn.remove();
-      } catch (e) {}
+      try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
       try { if (inputField) inputField.disabled = false; } catch (e) {}
-      // replace placeholder with final parsed HTML
       aiMsg.innerHTML = simpleMarkdownToHTML(final);
 
-      // append copy button after finalization (reuse full UX from addAIResponse)
       const copyBtn = document.createElement('button');
       copyBtn.className = 'tsCopyBtn';
       copyBtn.innerHTML = '📋';
-
       const tooltip = document.createElement('span');
       tooltip.className = 'tsCopyTooltip';
       tooltip.textContent = 'Copy to clipboard';
@@ -873,16 +1006,13 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
           await navigator.clipboard.writeText(final);
           if (resetTimeout) clearTimeout(resetTimeout);
           if (copiedNote && copiedNote.isConnected) copiedNote.remove();
-
           copyBtn.classList.add('tsCopied');
           copyBtn.innerHTML = '✅';
           copyBtn.appendChild(tooltip);
-
           copiedNote = document.createElement('span');
           copiedNote.className = 'tsCopiedText';
           copiedNote.textContent = 'Copied!';
           aiMsg.appendChild(copiedNote);
-
           resetTimeout = setTimeout(() => {
             if (copiedNote?.isConnected) copiedNote.remove();
             copyBtn.classList.remove('tsCopied');
@@ -902,60 +1032,51 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
       copyBtn.addEventListener('click', handleCopy);
       aiMsg.appendChild(copyBtn);
 
-      // persist to chat history
       chatHistory.push({ role: 'model', parts: [{ text: final }] });
       chatHistory = trimHistory(chatHistory, MAX_TOKENS);
 
-      // cleanup
       port.onMessage.removeListener(onMsg);
-      try { port.disconnect(); } catch (e) { /* ignore */ }
+      try { port.disconnect(); } catch (e) {}
     }
   };
 
   port.onMessage.addListener(onMsg);
 
-  // Replace the input send button with cancelBtn so the cancel appears in the exact same spot
-  // (originalSendBtn already declared above)
   if (inputContainer) {
     const sendBtn = inputContainer.querySelector('.tsChatSendBtn');
     if (sendBtn) {
       originalSendBtn = sendBtn;
-      try { sendBtn.replaceWith(cancelBtn); } catch (e) { /* ignore */ }
+      try { sendBtn.replaceWith(cancelBtn); } catch (e) {}
     } else {
-      // If no send button exists, append the cancel btn so user can cancel
       inputContainer.appendChild(cancelBtn);
     }
   }
 
-  // cancel button wiring (send cancel by id) — swap back to original send button when clicked
   cancelBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     try {
-      // If the port is already disconnected, just restore UI and return
+      cancelRequested = true;
       if (!portAlive) {
-        thinking.textContent = 'Canceled.';
+        thinking.textContent = 'Canceled by you.';
         try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
         try { if (inputField) inputField.disabled = false; } catch (e) {}
         return;
       }
-      // show spinner/badge while waiting for the cancel to be processed
       spinner.textContent = '⏳';
       cancelBtn.appendChild(spinner);
       cancelBtn.disabled = true;
       port.postMessage({ action: 'cancel', id: reqId });
-    } catch (err) { console.error('Cancel request failed', err);
-      // restore UI on failure
-      thinking.textContent = 'Canceled.';
+    } catch (err) {
+      console.error('Cancel request failed', err);
+      thinking.textContent = 'Canceled by you.';
+      cancelRequested = false;
       try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
       try { if (inputField) inputField.disabled = false; } catch (e) {}
     }
-    // visual feedback
     thinking.textContent = 'Canceling…';
   });
 
-  // Helper: add retry action to an ai message bubble
-  function addRetryAction(containerEl, uText, rebuild, useContext) {
-    // remove existing retry if present
+  function addRetryAction(containerEl, uText, rebuild, ctx) {
     const existing = containerEl.querySelector('.tsRetryBtn');
     if (existing) return;
     const retryBtn = document.createElement('button');
@@ -964,14 +1085,26 @@ export async function sendToGemini(userText, withBuildPrompt=false, withContext 
     retryBtn.style.marginTop = '8px';
     retryBtn.onclick = (ev) => {
       ev.stopPropagation();
-      // cleanup UI
       try { if (retryBtn.isConnected) retryBtn.remove(); } catch (e) {}
-      // re-run sendToGemini with the same args
-      sendToGemini(uText, rebuild, useContext);
+      sendToGemini(_retryUserText, ctx, _retryWithBuildPrompt);
     };
     containerEl.appendChild(retryBtn);
   }
+
+  function showCancelNote(containerEl, text) {
+    try {
+      const existing = containerEl.querySelector('.tsCancelNote');
+      if (existing) existing.remove();
+      const note = document.createElement('div');
+      note.className = 'tsCancelNote';
+      note.setAttribute('role', 'status');
+      note.setAttribute('aria-live', 'polite');
+      note.textContent = text;
+      containerEl.appendChild(note);
+    } catch (e) { /* ignore */ }
+  }
 }
+
 
 // ==============================
 // Prompt Builder

@@ -218,6 +218,7 @@
 
   // page main text contents
   let mainText = null
+  let pageSummary = "";
 
   // --- Floating icon ---
   const floatingIcon = document.createElement("div");
@@ -722,7 +723,7 @@
     e.stopPropagation();
     expandSelectionToSentence()
     const selection = window.getSelection();
-    chatPanelModule.openChatPanel(selection)
+    chatPanelModule.openChatPanel(selection, pageSummary)
     if (!chatPanelModule.isInputHandlerSet){ // we need only one input handler for this.
       chatPanelModule.attachInputHandler(explainTextInputHelper)
     }
@@ -730,10 +731,72 @@
     
   })
 
-  document.addEventListener("load", (e)=>{
-    mainText = extractMainTextModule.extractMainTextFromDocument(document)
-    console.log("Extracted main text: ", mainText)
-  })
+  //Getting page summarization for context
+  async function summarizeWithAI(text) {
+    console.log("Summarizing new content...");
+
+    // Prefer the shared summarizeToFit helper from chatPanel if available
+    try {
+      if (chatPanelModule && typeof chatPanelModule.summarizeToFit === 'function') {
+        // Use a reasonable token target for page summaries
+        const target = chatPanelModule.CONTEXT_BUDGET; // keep under the CONTEXT_BUDGET in chatPanel
+        const summary = await chatPanelModule.summarizeToFit(text, target, 'page content');
+        console.log("AI Summary (via chatPanel.summarizeToFit):", summary);
+        return summary;
+      }
+    } catch (e) {
+      console.warn('chatPanel.summarizeToFit failed, falling back to local summarizer', e);
+    }
+
+    // Fallback: local (fake) summarizer
+    const summary = await fakeAISummarizer(text);
+    console.log("AI Summary (fallback):", summary);
+    return summary;
+  }
+
+  // Simulated AI function (replace with your real one)
+  function fakeAISummarizer(text) {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve(text.slice(0, 200) + '... [summary truncated]');
+      }, 1000);
+    });
+  }
+
+  // Debounce helper to limit frequent updates
+  function debounce(fn, delay) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delay);
+    };
+  }
+
+  // Debounced content check
+  const debouncedCheck = debounce(() => {
+    const text = extractMainTextModule.extractMainTextFromDocument(document);
+    if (text) {
+      summarizeWithAI(text);
+    } else {
+      console.log("No significant new content to summarize.");
+    }
+  }, 3000); // adjust delay to taste
+
+  // Observe DOM changes
+  const observer = new MutationObserver(() => {
+    debouncedCheck();
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Initial check after full page load
+  window.addEventListener('load', async () => {
+    const text = extractMainTextModule.extractMainTextFromDocument(document);
+    if (text){
+      pageSummary = await summarizeWithAI(text);
+    }
+  });
+
 
   document.addEventListener('mousedown', (e) => {
     //console.log(document.body.innerText)
