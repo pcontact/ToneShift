@@ -69,6 +69,27 @@
       transform: translateY(-1px);
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     }
+    .tsExplainBtn {
+      /*position: absloute;*/
+      background: #2a1b4d;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      z-index: 1000000;
+      display: block;
+      font-family: sans-serif;
+      font-weight: bold;
+      white-space: nowrap;
+    }
+    .tsExplainBtn:hover {
+      background: #2a1b4d;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
 
     .ts-fpb-container{
       position: absolute;
@@ -203,7 +224,7 @@
   floatingIcon.id = "ts-floating-icon";
   floatingIcon.textContent = "TS";
   floatingIcon.style.display = "none";
-  document.body.appendChild(floatingIcon);
+  //document.body.appendChild(floatingIcon);
 
   // --- Floating preview button ---
   const floatingPreviewBtn = document.createElement("button");
@@ -219,6 +240,7 @@
 
   // Floating Lens Action container
   const explainBtn = document.createElement("button")
+  explainBtn.className = "tsExplainBtn"
   explainBtn.textContent = "🔍 Help me Explain"
   explainBtn.title = "Get a detailed explanation of the selected text."
   fPBContainer.appendChild(explainBtn)
@@ -509,6 +531,7 @@
     fPBContainer.style.left = (rect.left + window.scrollX) + 'px';
     fPBContainer.style.display = 'grid';
 
+    /*
     const n = fPBContainer.querySelector("#floating-mode-dropdown")
     if (!n){
       // mode selection icon
@@ -539,6 +562,7 @@
       
         fPBContainer.appendChild(clonedNode)
     }
+    */
 
   }
 
@@ -643,10 +667,11 @@
     if (!chatPanelModule.isInputHandlerSet){ // we need only one input handler for this.
       chatPanelModule.attachInputHandler(explainTextInputHelper)
     }
+    hideFloatingPreviewButton();
     
   })
 
-  document.addEventListener("DOMContentLoaded", (e)=>{
+  document.addEventListener("load", (e)=>{
     mainText = extractMainTextModule.extractMainTextFromDocument(document)
     console.log("Extracted main text: ", mainText)
   })
@@ -885,7 +910,7 @@
 
 
   // Floating button click handler - FIXED: Use stored state
-  floatingPreviewBtn.addEventListener('click', (e) => {
+  floatingPreviewBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
     //console.log("Maintext:", extractMainTextModule.extractMainTextFromDocument(document));
     
@@ -915,17 +940,24 @@
       hideFloatingPreviewButton();
 
       setTimeout(()=>{
-        updateOutputDisplayUI(" i love windows")
+        updateOutputDisplayUI("Something went wrong", false)
       }, 2000)
       return
       */
+
+      // Ensure microcard is created and populated before sending the preview request
+      // Awaiting showMicroCard avoids a race where the AI response arrives before
+      // the microcard DOM exists (which previously caused document.querySelector to return null).
+      setTimeout(async () => {
+        await showMicroCard(selection, mapKey);
+      }, 20);
       
 
-      //Use the same preview logic
-      performPreview(mapKey);
-      setTimeout(() => {
-      showMicroCard(selection, mapKey);
-      }, 100);
+      // Use the same preview logic (now that the microcard exists)
+      await performPreview(mapKey);
+
+      
+      
       
       hideFloatingPreviewButton();
     } else {
@@ -1212,7 +1244,7 @@
       lastAIResponse = "";
       setLoading(false);
       toggleSpinner(null, false)
-      updateOutputDisplayUI("Something went wrong. Try again")
+      updateOutputDisplayUI("Something went wrong. Try again", false)
 
       
       if (isPreviewMode) {
@@ -1838,6 +1870,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     card.className = "tsMicrocard";
     document.body.appendChild(card);
     refineMicroCard = card; // store reference for later usage/removal
+    //console.log(refineMicroCard)
 
     // Card positioning logic
     const cardWidth = 380; // match CSS width
@@ -2680,18 +2713,31 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       console.error("Error creating micro card")
     }
     if (originalTextOrSelection && rewriteMapKey){
-      buildOutputDisplayUI(originalText, rewriteMapKey, card)
+      // Wait for buildOutputDisplayUI to finish populating the card before returning.
+      // buildOutputDisplayUI is async because it awaits storage and other async builders.
+      await buildOutputDisplayUI(originalText, rewriteMapKey, card)
     }
   }
 
   //updateOutputDisplayUI
-  function updateOutputDisplayUI(rewrittenText, success=true){
-    const microcard = document.querySelector(".tsMicrocard")
-    //console.log(microcard)
-    if(!microcard) return
+  function updateOutputDisplayUI(rewrittenText, success=true, attempt=0){
+    // Try to find the microcard in DOM; fall back to the last created reference refineMicroCard
+    const microcard = document.querySelector(".tsMicrocard") || refineMicroCard;
+    // Debug log to help trace timing issues
+    //console.log("Microcard: ", microcard, "(attempt:", attempt, ")")
+
+    // If microcard still isn't ready, retry a few times with a short delay
+    if(!microcard){
+      if (attempt < 6) {
+        setTimeout(() => updateOutputDisplayUI(rewrittenText, success, attempt + 1), 80);
+      } else {
+        console.warn("updateOutputDisplayUI: microcard not available after retries");
+      }
+      return
+    }
 
     const el = microcard.querySelector(".tsRewrittenText")
-    setOwnText(el, rewrittenText)
+    if (el) setOwnText(el, rewrittenText)
     const spinner = microcard.querySelector("#tsSpinnerContainer")
     if(spinner) spinner.style.display = "none"
 
