@@ -268,6 +268,7 @@
         overflow-y: auto;
       }
       h2 { margin-top: 0; }
+      /* default button style used for action buttons inside the sidebar */
       button {
         margin: 4px 2px;
         padding: 6px 10px;
@@ -279,6 +280,28 @@
         cursor: pointer;
       }
       button:hover { background: #b388ff; }
+
+      /* compact close button positioned at top-right of the sidebar */
+      #ts-hide-sidebar {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: transparent; /* keep subtle */
+        color: #6C63FF;
+        font-weight: 700;
+        font-size: 16px;
+        line-height: 1;
+      }
+      #ts-hide-sidebar:hover {
+        background: rgba(108,99,255,0.08);
+      }
       input[type=range] { width: 100%; }
       hr { margin: 10px 0; }
       #ts-spinner .ts-loader {
@@ -366,33 +389,36 @@
     </style>
 
     <div id="toneshift-sidebar">
-      <h2>✨ToneShift</h2>
+  <h2>✨ToneShift</h2>
 
-      <button id="ts-hide-sidebar">Hide Sidebar</button><br>
+  <button id="ts-hide-sidebar" aria-label="Close sidebar">✕</button>
       
       <hr>
-
+      <div class="ts-mode-selection-section" style="display:none">
       <label for="ts-mode-select">Mode:</label>
       <select id="ts-mode-select">
         <!-- Options will be populated dynamically -->
       </select>
+      
 
       <button id="ts-preview" title="Polish your selected text instantly with ToneShift.">Refine</button>
       <button id="ts-apply">Apply</button>
       <button id="ts-undo">Undo</button>
       <button id="ts-reset" title="Remove all applied AI rewritten text from the page.">Reset</button>
       <hr>
+      </div>
 
       <button id="ts-advanced-toggle">⚙️ Advanced Options</button>
 
       <div id="ts-advanced-controls" style="display: none;">
+        <div class="custom-modes-section" style="display:none">
         <label style="font-weight:600">Custom Modes:</label>
         <select id="ts-profile-select"></select><br><br>
          <hr>
 
         <label style="font-weight:600">Tone: <span id="ts-tone-value" style="font-weight:300">Neutral</span></label>
         <input id="ts-tone" type="range" min="0" max="10" value="5"><br>
-        
+
         <label style="font-weight:600">Complexity: <span id="ts-complexity-value" style="font-weight:300">Medium</span></label>
         <input id="ts-complexity" type="range" min="0" max="10" value="5"><br>
         
@@ -403,7 +429,9 @@
         <button id="ts-save-profile">Save Current</button>
         <button id="ts-edit-profile">Edit Selected</button>
         <button id="ts-delete-profile">Delete</button>
-        <hr>
+         <hr>
+        </div>
+       
 
         <h3>Model Settings</h3>
         <div class="setting-with-tooltip">

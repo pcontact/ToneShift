@@ -9,8 +9,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Load state from storage
   const data = await chrome.storage.local.get(["sidebarVisible", "apiKey"]);
 
-  // Set sidebar button label
-  openBtn.textContent = data.sidebarVisible ? "Hide Sidebar" : "Show Sidebar";
+  // Set settings button label
+  openBtn.textContent = data.sidebarVisible ? "Hide Settings" : "Show Settings";
 
   // Load saved API key
   if (data.apiKey) {
@@ -46,12 +46,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   openBtn.addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    const nextState = openBtn.textContent === "Show Sidebar"; // true = want to show
+  const nextState = openBtn.textContent === "Show Settings"; // true = want to show
 
     chrome.tabs.sendMessage(tab.id, { action: "toggleSidebar", visible: nextState });
 
     await chrome.storage.local.set({ sidebarVisible: nextState });
-    openBtn.textContent = nextState ? "Hide Sidebar" : "Show Sidebar";
+  openBtn.textContent = nextState ? "Hide Settings" : "Show Settings";
   });
 
 });
