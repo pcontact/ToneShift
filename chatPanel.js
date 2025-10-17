@@ -1,7 +1,4 @@
 // chatPanel.js
-import { extractMainTextFromDocument } from './utils/extractMainText.js'
-import { getContextText } from "./utils/getRewriteContext.js"
-
 let panelVisible = false;
 let lastHighlight = '';
 let chatHistoryMap = new Map();
@@ -525,7 +522,7 @@ function createOrRestoreSendButton(callback) {
 }
 
 // ----------------- Panel Controls -----------------
-export function openChatPanel(highlightedText, context) {
+export function openChatPanel(highlightedText) {
     injectCSS();
     injectHTML();
     const panel = document.getElementById('tsChatPanelContainer');
@@ -547,7 +544,7 @@ export function openChatPanel(highlightedText, context) {
         });
     } else {
         const text = highlightedText.toString().trim();
-        sendToGemini(text, context, true);
+        sendToGemini(text, getDefaultContext(), true);
     }
 
     updatePanelPosition();
@@ -706,7 +703,7 @@ const systemPrompt = {
   role: "system",
   parts: [
     {
-      text: `You are a friendly, human-like assistant who helps users understand complex text in simple, clear, and engaging ways. Users may be students, researchers, or casual readers.
+      text: `Your name is Gideon, you are a friendly, human-like assistant who helps users understand complex text in simple, clear, and engaging ways. Users may be students, researchers, or casual readers.
 
 Your goals:
 - Simplify concepts using plain language and examples.
@@ -739,6 +736,9 @@ const SAFE_INPUT_LIMIT = SYSTEM_BUDGET + USER_BUDGET + CONTEXT_BUDGET; // 700
 // Debug Mode Toggle
 const DEBUG_MODE = true;
 
+// Default context
+let defaultContext = "";
+
 // ==============================
 // Utility Functions
 // ==============================
@@ -754,19 +754,34 @@ function trimHistory(history, limit) {
   let total = 0;
   const trimmed = [];
 
-  const system = history.find(msg => msg.role === "system");
-  const others = history.filter(msg => msg.role !== "system");
+  if (!Array.isArray(history)) return [];
 
-  total += estimateTokens(system.parts[0].text);
+  console.log(history);
+
+  // Get system message safely
+  const system = history.find(msg => msg?.role === "system");
+
+  // Filter out invalid or undefined entries
+  const others = history.filter(msg => msg && msg.role !== "system");
+
+  // Add system tokens if present
+  if (system && system.parts?.[0]?.text) {
+    total += estimateTokens(system.parts[0].text);
+  }
+
+  // Traverse others from end
   for (let i = others.length - 1; i >= 0; i--) {
     const msg = others[i];
-    const tokens = estimateTokens(msg.parts?.[0]?.text || "");
+    const text = msg.parts?.[0]?.text || "";
+    const tokens = estimateTokens(text);
     if (total + tokens > limit) break;
     trimmed.unshift(msg);
     total += tokens;
   }
-  return [system, ...trimmed];
+
+  return system ? [system, ...trimmed] : trimmed;
 }
+
 
 // ==============================
 // Summarization Helpers
@@ -813,7 +828,7 @@ ${text}`;
 // ==============================
 // Main sendToGemini Function
 // ==============================
-export async function sendToGemini(userText, context, withBuildPrompt = false) {
+export async function sendToGemini(userText, context=defaultContext, withBuildPrompt = false) {
   if (!userText || typeof userText !== "string" || userText.trim().length === 0) return;
   addUserMessage(userText);
   //console.log("Sending to Gemini:", { userText, context, withBuildPrompt });
@@ -829,7 +844,7 @@ export async function sendToGemini(userText, context, withBuildPrompt = false) {
   // Build final prompt
   let finalPrompt = userText;
   if (withBuildPrompt) finalPrompt = buildPrompt(userText, context);
-  //console.log("Final prompt before context:", finalPrompt);
+  console.log("Final prompt before context:", finalPrompt);
   // Compute total input tokens
   const totalTokens =
     estimateTokens(systemPrompt.parts[0].text) + estimateTokens(finalPrompt);
@@ -1105,22 +1120,17 @@ export async function sendToGemini(userText, context, withBuildPrompt = false) {
   }
 }
 
-
 // ==============================
 // Prompt Builder
 // ==============================
 function buildPrompt(text, context, goal = "Simplify the concept and explain the main idea") {
   return `
-  Please help me understand the following text:
-  ${text}
-  
-    Optional context:
+    Text to explain:
+    ${text}
+
+    Context (if any):
     ${context || "N/A"}
-
-    My goal:
-    ${goal}
-
-    Respond in clear, natural language, focusing on clarity and motivation to continue reading.`;
+    `
 }
 
 function simpleMarkdownToHTML(markdown) {
@@ -1155,4 +1165,12 @@ function simpleMarkdownToHTML(markdown) {
 
   return html.trim();
 }
+
+export function setDefaultContext(summary) {
+  defaultContext = summary;
+}
+
+export function getDefaultContext() {
+  return defaultContext;
+} 
 

@@ -2,20 +2,41 @@
 import { GoogleGenerativeAI } from "./vendor/generative-ai.bundle.js";
 
 let model = null;
-
+let isLocalMode = true
 // Load API key from storage and init model
 
-async function initModel() {
-  const data = await chrome.storage.local.get("apiKey");
-  const apiKey = data.apiKey || "YOUR_API_KEY";
-  //console.log("Using API Key:", apiKey);
+async function initCloudModel(apiKey) {
+  if (!apiKey) {
+    const { apiKey: storedKey } = await chrome.storage.local.get("apiKey");
+    apiKey = storedKey;
+  }
+
+  if (!apiKey) {
+    console.warn("No API key found for Google Generative AI.");
+    return null;
+  }
 
   const genAI = new GoogleGenerativeAI(apiKey);
   model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 }
 
-// Initialize on load
-initModel();
+
+async function init() {
+
+  console.log("Initializing ToneShift background script...");
+  const data = await chrome.storage.local.get("useCloudModel");
+  console.log("Loaded useCloudModel:", data.useCloudModel);
+  if(!data.hasOwnProperty("useCloudModel")) {
+    await chrome.storage.local.set({ useCloudModel: false });
+    return;
+  }
+  isLocalMode = !data.useCloudModel;
+  console.log("isLocalMode set to:", isLocalMode);
+  if (data.useCloudModel) {
+    await initCloudModel();
+  }
+}
+init();
 
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -33,133 +54,140 @@ chrome.action.onClicked.addListener((tab) => {
 // Handle messages globally
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "openPopup") {
-    // Try opening popup first (only works with user gesture)
     if (chrome.action.openPopup) {
-      chrome.action.openPopup().catch(() => {
-        chrome.runtime.openOptionsPage(); // fallback
-      });
+      chrome.action.openPopup().catch(() => chrome.runtime.openOptionsPage());
     } else {
       chrome.runtime.openOptionsPage();
     }
+    return;
+  }
+
+  if (msg.action === 'updateGeminiModelPreference') {
+    isLocalMode = !msg.useCloudModel;
+    console.log("Gemini model preference updated. Local mode:", isLocalMode);
+    if (!isLocalMode) {
+      initCloudModel().catch(err => console.error("Error initializing cloud model:", err));
+    }
+    return;
+  }
+
+  if (msg.action === 'updateGeminiApiKey') {
+    const newApiKey = msg.apiKey;
+    console.log("Updating Gemini API Key.");
+    if (!isLocalMode) {
+      initCloudModel(newApiKey).catch(err => console.error("Error updating cloud model API key:", err));
+    }
+    return;
   }
 });
+
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "askGemini") {
     const { text, history } = message;
 
+    // Return true to indicate asynchronous response
     (async () => {
       try {
-        // Extract the system instruction
         const system = history.find(msg => msg.role === "system");
         const nonSystemHistory = history.filter(msg => msg.role !== "system");
 
-        // Format systemInstruction properly
         const systemInstruction = system
-          ? { role: "user", parts: [{ text: system.parts?.[0]?.text || "" }] }
+          ? { role: isLocalMode ? "system" : "user", parts: [{ text: system.parts?.[0]?.text || "" }] }
           : undefined;
 
-        const chat = model.startChat({
-          systemInstruction,
-          history: nonSystemHistory,
-        });
-
-        const response = await chat.sendMessage(text);
-        const reply = response.response.text();
-
-        sendResponse({ reply });
+        if (isLocalMode) {
+          console.log("Using local Gemini model via Chrome Prompt API. isLocalMode:", isLocalMode);
+          // Use Chrome Built-in Prompt API
+          const session = await ai.languageModel.create();
+          const result = await session.prompt(text, {
+            systemInstruction,
+            history: nonSystemHistory,
+          });
+          sendResponse({ reply: result });
+        } else {
+          console.log("Using cloud Gemini model via GoogleGenerativeAI. isLocalMode:", isLocalMode);
+          // Use original Gemini-based logic
+          const chat = model.startChat({
+            systemInstruction,
+            history: nonSystemHistory,
+          });
+          const response = await chat.sendMessage(text);
+          const reply = response.response.text();
+          sendResponse({ reply });
+        }
       } catch (err) {
-        console.error("Gemini error:", err);
+        console.error("AI logic error:", err);
         sendResponse({ error: err.message });
       }
     })();
-
     return true; // Keeps sendResponse open for async
   }
 });
+
 
   // --- Streaming support via long-lived port ---
   // Clients should connect with chrome.runtime.connect({ name: 'gemini-stream' })
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'gemini-stream') return;
 
-  // Keep AbortControllers per-request id so multiple streams can be handled on one port
-  const controllers = new Map();
+    const controllers = new Map();
 
     port.onMessage.addListener(async (msg) => {
       if (!msg) return;
 
       if (msg.action === 'start') {
         const { text, history, id } = msg;
+
         try {
-          // Start chat as before but using the streaming API
           const system = history.find(h => h.role === 'system');
           const nonSystemHistory = history.filter(h => h.role !== 'system');
 
           const systemInstruction = system
-            ? { role: 'user', parts: [{ text: system.parts?.[0]?.text || '' }] }
+            ? { role: isLocalMode ? 'system' : 'user', parts: [{ text: system.parts?.[0]?.text || '' }] }
             : undefined;
 
-          const chat = model.startChat({ systemInstruction, history: nonSystemHistory });
+          if (isLocalMode) {
+            // Use Chrome Prompt API's streaming
+            const session = await ai.languageModel.create();
+            const stream = session.promptStreaming(String(text), { systemInstruction, history: nonSystemHistory });
 
-          // Create an AbortController so caller can cancel this request
-          const controller = new AbortController();
-          if (id) controllers.set(id, controller);
-
-          // sendMessageStream returns { stream: asyncIterable, response: promise }
-          // The vendor SDK expects the request to be a string or an array of parts
-          // formatNewContent(request) treats a string as text content. Do not pass
-          // an object like { text } which is iterable and causes "request is not iterable".
-          const streamResult = await chat.sendMessageStream(
-            String(text),
-            { signal: controller.signal }
-          );
-
-          // Iterate the stream and send incremental deltas to client
-          let prev = '';
-          try {
-            for await (const partial of streamResult.stream) {
-              try {
-                const current = partial.text();
-                // send only the delta since last partial
-                const delta = current.slice(prev.length);
-                if (delta) port.postMessage({ id, chunk: delta, done: false });
-                prev = current;
-              } catch (e) {
-                // partial.text() can throw for blocked responses; forward minimal info
-                console.error('Error reading partial chunk text', e);
-              }
+            let prev = '';
+            for await (const chunk of stream) {
+              const current = chunk.text();
+              const delta = current.slice(prev.length);
+              if (delta) port.postMessage({ id, chunk: delta, done: false });
+              prev = current;
             }
-          } catch (streamErr) {
-            // If aborted, notify client
-            if (streamErr.name === 'AbortError') {
-              port.postMessage({ id, canceled: true, done: true });
-              try { port.disconnect(); } catch (e) { /* ignore */ }
-              return;
-            }
-            throw streamErr;
-          }
 
-          // Wait for final aggregated response
-          const finalResp = await streamResult.response;
-          try {
-            const finalText = finalResp.text();
+            const finalText = await stream.response.text();
             port.postMessage({ id, chunk: '', done: true, reply: finalText });
-          } catch (e) {
-            port.postMessage({ id, error: e.message || String(e), done: true });
-          }
-
-          try { port.disconnect(); } catch (e) { /* ignore */ }
-        } catch (err) {
-          if (err.name === 'AbortError') {
-            port.postMessage({ id, canceled: true, done: true });
           } else {
-            console.error('Gemini streaming error:', err);
-            port.postMessage({ id, error: err.message || String(err), done: true });
+            // Use original Gemini-based streaming logic
+            const chat = model.startChat({ systemInstruction, history: nonSystemHistory });
+            const controller = new AbortController();
+            if (id) controllers.set(id, controller);
+
+            const streamResult = await chat.sendMessageStream(String(text), { signal: controller.signal });
+
+            let prev = '';
+            for await (const partial of streamResult.stream) {
+              const current = partial.text();
+              const delta = current.slice(prev.length);
+              if (delta) port.postMessage({ id, chunk: delta, done: false });
+              prev = current;
+            }
+
+            const finalResp = await streamResult.response;
+            const finalText = await finalResp.text();
+            port.postMessage({ id, chunk: '', done: true, reply: finalText });
           }
-          try { port.disconnect(); } catch (e) { /* ignore */ }
+        } catch (err) {
+          console.error('AI streaming error:', err);
+          port.postMessage({ id, error: err.message || String(err), done: true });
         } finally {
           if (id) controllers.delete(id);
+          try { port.disconnect(); } catch (e) { /* ignore */ }
         }
       } else if (msg.action === 'cancel') {
         const { id } = msg;
@@ -170,7 +198,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             controllers.delete(id);
           }
         } else {
-          // no id => abort all
+          // Abort all
           for (const ctrl of controllers.values()) {
             try { ctrl.abort(); } catch (e) { /* ignore */ }
           }
@@ -179,5 +207,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
   });
+
 
 

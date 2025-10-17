@@ -387,6 +387,82 @@
         border-style: solid;
         border-color: #555 transparent transparent transparent;
       }
+      #ts-general-controls {
+        font-family: system-ui, sans-serif;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 15px;
+        max-width: 300px;
+        background-color: #fafafa;
+        transition: all 0.3s ease;
+      }
+
+      #ts-general-controls h3 {
+        margin-top: 0;
+        color: #333;
+      }
+
+      .toggle-label {
+        font-weight: 500;
+        color: #333;
+        cursor: pointer;
+      }
+
+      #ts-gemini-cloud-model-toggle {
+        margin-left: 8px;
+        transform: scale(1.1);
+        cursor: pointer;
+      }
+
+      /* The “faded” look when disabled */
+      #ts-general-controls.inactive .ts-settings-body {
+        opacity: 0.4;
+        pointer-events: none;
+        filter: grayscale(80%);
+      }
+
+      #ts-general-controls.inactive {
+        background-color: #f0f0f0;
+        border-color: #ddd;
+      }
+
+      .input-label {
+        display: block;
+        margin-top: 15px;
+        color: #555;
+      }
+
+      #ts-gemini-api-key {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        margin-top: 4px;
+        font-size: 14px;
+        transition: border-color 0.3s ease;
+      }
+
+      #ts-gemini-api-key:focus {
+        border-color: #007bff;
+        outline: none;
+      }
+
+      #ts-set-key {
+        margin-top: 10px;
+        padding: 7px 10px;
+        border: none;
+        border-radius: 4px;
+        background-color: #007bff;
+        color: white;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      #ts-set-key:hover {
+        background-color: #0056b3;
+      }
+
     </style>
 
     <div id="toneshift-sidebar">
@@ -417,6 +493,7 @@
 
       <button id="ts-advanced-toggle">⚙️ Advanced Options</button>
       <div id="ts-advanced-controls" style="display: none;">
+
         <div class="custom-modes-section" style="display:none">
         <label style="font-weight:600">Custom Modes:</label>
         <select id="ts-profile-select"></select><br><br>
@@ -438,21 +515,39 @@
          <hr>
         </div>
        
+        <div id="ts-general-controls">
+          <div><h3>General Settings</h3></div>
+          <label for="ts-gemini-cloud-model-toggle" class="toggle-label">
+            Use Cloud Gemini Model
+          </label>
+          <input type="checkbox" id="ts-gemini-cloud-model-toggle">
 
-        <h3>Model Settings</h3>
-        <div class="setting-with-tooltip">
-          <input type="checkbox" id="ts-preserve-formatting">
-          <label for="ts-preserve-formatting">Maintain page original formatting</label>
-          <span class="tooltip" role="tooltip">
-            Preserve existing text styling, bold, italics, links, and other HTML formatting.<br>
-            <span>Note: When enabled, rewrites can take more time and also more token consumption when
-            using a Gemini API key.</span>
-          </span>
+          <div class="ts-settings-body">
+            <input type="password" id="ts-gemini-api-key" placeholder="Enter your Gemini API Key">
+            <label for="ts-gemini-api-key" class="input-label">
+              🔑 Gemini API Key
+            </label>
+            
+            <button id="ts-set-key">Save Key</button>
+          </div>
         </div>
-        <br><br>
 
-        <label for="gemini-cloud-model-toggle" style="font-weight:600">Use Cloud Gemini Model</label>
-        <button id="ts-set-key">🔑 Set Gemini API Key</button><br>
+        <hr>
+
+        <div id="ts-refine-controls" style="margin-top:10px;">
+          <h3>Refine Text Settings</h3>
+          <div class="setting-with-tooltip">
+            <input type="checkbox" id="ts-preserve-formatting">
+            <label for="ts-preserve-formatting">Maintain page original formatting</label>
+            <span class="tooltip" role="tooltip">
+              Preserve existing text styling, bold, italics, links, and other HTML formatting.<br>
+              <span>Note: When enabled, rewrites can take more time and also more token consumption when
+              using a Gemini API key.</span>
+            </span>
+          </div>
+          <br><br>
+        </div>
+        <hr>
       </div>
 
       <hr>
@@ -508,6 +603,10 @@
   const undoAllBtn = qs("ts-undo-all");
   const autoRewriteToggle = qs("ts-auto-rewrite");
   const preserveFormattingCheckbox = qs('ts-preserve-formatting');
+  const geminiCloudModelToggle = qs('ts-gemini-cloud-model-toggle');
+const generalControls = qs('ts-general-controls');
+const apiKeyInput = qs('ts-gemini-api-key');
+const apiKeySaveBtn = qs('ts-set-key');
 
   undoBtn.style.display = "none" // hide sidebar undoBtn
   applyBtn.style.display = "none" // hide sidebar applyBtn
@@ -731,6 +830,45 @@
     
   })
 
+  function updateGeneralControlState(state) {
+    const enabled = state;
+    if (enabled) {
+      generalControls.classList.remove('inactive');
+      apiKeyInput.disabled = false;
+      apiKeySaveBtn.disabled = false;
+    } else {
+      generalControls.classList.add('inactive');
+      apiKeyInput.disabled = true;
+      apiKeySaveBtn.disabled = true;
+    }
+  }
+
+  geminiCloudModelToggle.addEventListener('change', (e) => {
+    e.stopPropagation();
+    const useCloudModel = geminiCloudModelToggle.checked;
+    chrome.storage.local.set({  useCloudModel }, () => {
+      console.log("Set useCloudModel to", useCloudModel);
+      chrome.runtime.sendMessage({ action: 'updateGeminiModelPreference', useCloudModel });
+      updateGeneralControlState(geminiCloudModelToggle.checked)
+    });
+  });
+
+  apiKeySaveBtn.addEventListener('click', () => {
+    const key = apiKeyInput.value.trim();
+    if (!key) {
+      statusEl.textContent = "⚠️ Please enter a valid API key.";
+      return;
+    }
+
+    chrome.storage.local.set({ apiKey: key }, () => {
+      console.log("Gemini API Key saved.");
+      chrome.runtime.sendMessage({ action: 'updateGeminiApiKey', apiKey: key });
+      statusEl.textContent = "API Key saved.";
+      setTimeout(() => (statusEl.textContent = ""), 2000);
+    });
+  });
+
+
   //Getting page summarization for context
   async function summarizeWithAI(text) {
     console.log("Summarizing new content...");
@@ -794,6 +932,7 @@
     const text = extractMainTextModule.extractMainTextFromDocument(document);
     if (text){
       pageSummary = await summarizeWithAI(text);
+      chatPanelModule.setDefaultContext(pageSummary);
     }
   });
 
@@ -1127,10 +1266,17 @@
   // Load the saved state when the popup/page opens
   // This ensures the checkbox reflects the user's last choice
   window.addEventListener('load', () => {
+    console.log("dfffffffffffffffffffffffffffffffffffffffffgt loaded")
       chrome.storage.local.get('rewriteWithFormat', (data) => {
           if (data.rewriteWithFormat !== undefined) {
               preserveFormattingCheckbox.checked = data.rewriteWithFormat;
           }
+      });
+      chrome.storage.local.get("useCloudModel", (data)=>{
+        if (data.useCloudModel !== undefined) {
+          geminiCloudModelToggle.checked = data.useCloudModel;
+          updateGeneralControlState(data.useCloudModel)
+        }
       });
   });
 
