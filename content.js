@@ -9,10 +9,13 @@
   loaderScript.src = chrome.runtime.getURL("pageGeminiLoader.js");
   document.documentElement.appendChild(loaderScript);
 
-  const hybridScript = document.createElement("script");
+  const hybridScript = await import(chrome.runtime.getURL('pageHybrid.js'));
+  /*
+  document.createElement("script");
   hybridScript.type = "module"
   hybridScript.src = chrome.runtime.getURL("pageHybrid.js");
   document.documentElement.appendChild(hybridScript);
+  */
 
   const extractMainTextModule = await import(chrome.runtime.getURL('utils/extractMainText.js'));
 
@@ -2147,12 +2150,12 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     originalText = "This is a sample text to refine.";
     let rect = null;
 
-    if(!rewriteMapKey){
+    if (!rewriteMapKey) {
       console.error("No rewriteMapKey provided to createModePresetCard");
-      return
+      return;
     }
 
-    // Check if a Selection object was passed
+    // Handle selection input or string
     if (originalTextOrSelection && originalTextOrSelection.toString) {
       const selection = originalTextOrSelection;
       originalText = selection.toString().trim() || originalText;
@@ -2162,139 +2165,110 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     } else if (typeof originalTextOrSelection === "string") {
       originalText = originalTextOrSelection;
     }
-    //console.log("Creating mode preset card for text:", originalText.substring(0, 30) + "...");
 
-    const card = document.createElement("div");
-    card.className = "tsMicrocard sidebar";
-    document.body.appendChild(card);
-    refineMicroCard = card; // store reference for later usage/removal
-    //console.log(refineMicroCard)
+    // === Create the Shadow DOM host and attach shadow root ===
+    const host = document.createElement("div");
+    host.className = "tsMicrocard-host";
+    document.body.appendChild(host);
 
-    const header = document.createElement("div")
-    header.className = "tsMicrocardHeader"
-    setOwnText(header, "✨Gideon – Rewrite")
-    card.appendChild(header)
+    const shadow = host.attachShadow({ mode: "open" });
 
-    // Card positioning logic
-    helperFunction.positionPanel(originalTextOrSelection, card)
-    /*
-    const cardWidth = 380; // match CSS width
-    const cardHeight = 150; // approximate; could measure dynamically
+    // === Inject the styles into the shadow root ===
+    const styleEl = document.createElement("style");
+    styleEl.textContent = floatingRefinePopupStyle.textContent;
+    shadow.appendChild(styleEl);
 
-    if (rect && rect.width > 0) {
-      let top = rect.bottom + window.scrollY + 10;
-      let left = rect.left + window.scrollX;
+    // === Create the inner card inside the shadow root ===
+    const microcard = document.createElement("div");
+    microcard.className = "tsMicrocard sidebar";
+    shadow.appendChild(microcard);
 
-      // Adjust if card would overflow bottom of viewport
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
+    refineMicroCard = microcard; // Store global reference
 
-      if (top + cardHeight > window.scrollY + viewportHeight) {
-        top = rect.top + window.scrollY - cardHeight - 10; // position above selection
-      }
+    // === Header ===
+    const header = document.createElement("div");
+    header.className = "tsMicrocardHeader";
+    setOwnText(header, "✨Gideon – Rewrite");
+    microcard.appendChild(header);
 
-      // Adjust if card would overflow right edge
-      if (left + cardWidth > window.scrollX + viewportWidth) {
-        left = window.scrollX + viewportWidth - cardWidth - 10;
-      }
+    // === Card positioning ===
+    helperFunction.positionPanel(originalTextOrSelection, host);
 
-      // Adjust if card would overflow left edge
-      if (left < 10) {
-        left = 10;
-      }
-
-      card.style.top = `${top}px`;
-      card.style.left = `${left}px`;
-    } else {
-      // Fallback center
-      card.style.top = "40%";
-      card.style.left = "50%";
-      card.style.transform = "translate(-50%, -50%)";
-    }*/
-
-
-    // Track anchor position
-    const anchorY = rect ? rect.top + window.scrollY : window.innerHeight * 0.4;
-
-    // Hover tracking
+    // === Hover tracking ===
     let isMouseOverCard = false;
-    card.addEventListener('mouseenter', () => (isMouseOverCard = true));
-    card.addEventListener('mouseleave', () => (isMouseOverCard = false));
+    const onEnter = () => (isMouseOverCard = true);
+    const onLeave = () => (isMouseOverCard = false);
+    host.addEventListener("mouseenter", onEnter);
+    host.addEventListener("mouseleave", onLeave);
 
-    // Fade-out function
+    //host.addEventListener("mouseenter", () => (isMouseOverCard = true));
+    //host.addEventListener("mouseleave", () => (isMouseOverCard = false));
+
+    // === Fade-out and cleanup ===
     function gracefullyRemoveCard() {
-      if (!card.isConnected) return;
-      //console.log("Fading out and removing microcard");
-      card.style.transition = 'opacity 0.3s ease';
-      card.style.opacity = '0';
+      if (!host.isConnected) return;
+      host.style.transition = "opacity 0.3s ease";
+      host.style.opacity = "0";
       setTimeout(() => {
-        if (card.isConnected) card.remove();
+        if (host.isConnected) host.remove();
         cleanupListeners();
       }, 300);
-      isShowingPanels = false
+      isShowingPanels = false;
     }
 
-    // Scroll listener: fade out only if scrolled away AND not hovering
+    const anchorY = rect ? rect.top + window.scrollY : window.innerHeight * 0.4;
+
     function handleScroll() {
       const currentY = window.scrollY;
       if (Math.abs(currentY - anchorY) > 50 && !isMouseOverCard) {
-        window.removeEventListener('scroll', handleScroll);
-        window.removeEventListener('selectionchange', handleSelection);
+        window.removeEventListener("scroll", handleScroll);
+        window.removeEventListener("selectionchange", handleSelection);
         gracefullyRemoveCard();
       }
     }
 
-    // Optional: re-enable scroll listener when mouse leaves
     function handleMouseLeave() {
-      // if user scrolled while hovering, we re-check immediately upon leaving
       if (Math.abs(window.scrollY - anchorY) > 200) {
-        window.removeEventListener('scroll', handleScroll);
-        window.removeEventListener('selectionchange', handleSelection);
+        window.removeEventListener("scroll", handleScroll);
+        window.removeEventListener("selectionchange", handleSelection);
         gracefullyRemoveCard();
       }
     }
 
-
-
-    // Selection listener: fade out on new highlight
     function handleSelection(event) {
-      return
-      const sel = window.getSelection();
-      if (card.contains(event.target)) return; // ignore if selection change originated inside card
-      if (sel && sel.toString().trim().length > 0) {
-        window.removeEventListener('scroll', handleScroll);
-        window.removeEventListener('selectionchange', handleSelection);
-        gracefullyRemoveCard();
-      }
+      return;
     }
-    // Click-outside listener: fade out when user clicks anywhere not inside the card
+
     function handleClickOutside(event) {
-      
-      if (!card.contains(event.target)) {
-        cleanupListeners();
-        gracefullyRemoveCard();
-      }
+      // Clicks inside the shadow root shouldn't trigger removal
+      if (shadow.contains(event.composedPath()[0])) return;
+      cleanupListeners();
+      gracefullyRemoveCard();
     }
+
     document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("scroll", handleScroll);
+    document.addEventListener("selectionchange", handleSelection);
+    host.addEventListener("mouseleave", handleMouseLeave);
 
-    window.addEventListener('scroll', handleScroll);
-    document.addEventListener('selectionchange', handleSelection);
-
-    card.addEventListener('mouseleave', handleMouseLeave);
-
-    // 🧹 Centralized cleanup function
     function cleanupListeners() {
       window.removeEventListener("scroll", handleScroll);
       document.removeEventListener("selectionchange", handleSelection);
       document.removeEventListener("mousedown", handleClickOutside);
-      card.removeEventListener('mouseenter', () => (isMouseOverCard = true));
-      card.removeEventListener('mouseleave', () => (isMouseOverCard = false));
-      card.removeEventListener('mouseleave', handleMouseLeave);
+      host.removeEventListener("mouseenter", onEnter);
+      host.removeEventListener("mouseleave", onLeave);
+      host.removeEventListener("mouseleave", handleMouseLeave);
     }
 
-    isShowingPanels = true
-    return card
+    isShowingPanels = true;
+    return microcard; // Return the actual inner card for later DOM work
   }
+  function getActiveMicrocard() {
+    const host = document.querySelector(".tsMicrocard-host");
+    return host?.shadowRoot?.querySelector(".tsMicrocard") || refineMicroCard;
+  }
+
+
 
   async function buildModeSelectionCard(card, rewriteMapKey) {
     const chipContainer = document.createElement("div");
@@ -2319,7 +2293,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     chip.title = "Hide Adjust Buttons"
     chip.onclick = (() => {
       chipContainer.style.display = "none";
-      const btn = document.querySelector("#tsChangeModeButton")
+      const micro = getActiveMicrocard();
+      const btn = micro.querySelector("#tsChangeModeButton");
       btn.style.display = "block"
     })
     chipContainer.appendChild(chip)
@@ -2337,7 +2312,12 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     //const spinner = card.querySelector(".tsSpinner");
     //spinner.style.display = "block";
     //console.log("rewrimapkey: ", rewriteMapKey, " mode: ", mode)
-    microcardRewrittenEl.textContent = "";
+    //const blurBackground= document.createElement("div")
+    //blurBackground.id = "tsSpinnerContainer"
+    //microcardRewrittenEl.appendChild(blurBackground);
+    //showSpinner(microcardRewrittenEl, "")
+    microcardRewrittenEl.text = ""
+    
 
     performPreview(rewriteMapKey)
     
@@ -2353,6 +2333,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     const replaceBtn = card.querySelector("#tsReplaceButton")
     replaceBtn.disabled=true
+
+    card.querySelector(".tsTextActions").style.display = "none"
 
     // #microcard testing
     /*
@@ -2474,7 +2456,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     adjustToneButton.onclick = () => {
       const modeCard = card.querySelector(".tsChipContainer")
       modeCard.style.display = "flex"
-      const self = document.querySelector("#tsChangeModeButton")
+      const micro = getActiveMicrocard();
+      const self = micro.querySelector("#tsChangeModeButton");
       self.style.display = "none"
     };
 
@@ -2483,9 +2466,10 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     const caption = document.createElement("div");
     caption.className = "tsCaption";
+    const isCloudAI =  await chrome.storage.local.get("useCloudModel");
     caption.textContent = mode
-      ? `${mode} version — Local AI`
-      : "AI generated (local).";
+      ? `${mode} version — ${isCloudAI? "Cloud AI" : "Local AI"}`
+      : `AI generated -${isCloudAI? "Cloud AI" : "Local AI"}`;
 
     const actionBar = document.createElement("div");
     actionBar.className = "tsActionBar";
@@ -2507,7 +2491,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     const btnChange = createActionButton("Change Mode", () =>{
       const modeCard = card.querySelector(".tsChipContainer")
       modeCard.style.display = "flex"
-      const self = document.querySelector("#tsChangeModeButton")
+      const micro = getActiveMicrocard();
+      const self = micro.querySelector("#tsChangeModeButton");
       self.style.display = "none"
     });
     btnChange.textContent = "Adjust Tone/Style";
@@ -2790,7 +2775,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* Action buttons container */
     .tsTextActions {
-      display: flex;
+      display: none;
       gap: 6px;
       opacity: 0;
       pointer-events: none;
@@ -3037,8 +3022,6 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     }
   `;
 
-  document.head.appendChild(floatingRefinePopupStyle);
-
   //createModePresetCard()
   async function showMicroCard(originalTextOrSelection="No text selected. Select a text to start",
      rewriteMapKey){
@@ -3056,7 +3039,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   //updateOutputDisplayUI
   function updateOutputDisplayUI(rewrittenText, success=true, attempt=0){
     // Try to find the microcard in DOM; fall back to the last created reference refineMicroCard
-    const microcard = document.querySelector(".tsMicrocard") || refineMicroCard;
+    const microcard = getActiveMicrocard()
     // Debug log to help trace timing issues
     //console.log("Microcard: ", microcard, "(attempt:", attempt, ")")
 
@@ -3072,8 +3055,10 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     const el = microcard.querySelector(".tsRewrittenText")
     if (el) setOwnText(el, rewrittenText)
-    const spinner = microcard.querySelector("#tsSpinnerContainer")
-    if(spinner) spinner.style.display = "none"
+    
+    const orEl = microcard.querySelector(".tsOriginalText")
+    if (orEl) orEl.querySelector("#tsSpinnerContainer")?.remove()
+    //if(spinner) spinner.style.display = "none"
 
     if (success){
       const actionBar = microcard.querySelector(".tsActionBar")
@@ -3093,6 +3078,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       const replaceBtn = microcard.querySelector("#tsReplaceButton")
       replaceBtn.disabled=false
       replaceBtn.style.display = "flex"
+
+      microcard.querySelector(".tsTextActions").style.display = "flex"
     }
   }
 

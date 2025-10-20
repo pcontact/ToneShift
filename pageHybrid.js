@@ -182,6 +182,38 @@ export async function handleHybridRequest(eventData) {
     profile
   );
 
+  
+  let result = ""
+  const fluentRewrite = await chrome.runtime.sendMessage({
+    action: "askGemini",
+    text: freeWritePrompt,
+    history: [],
+  });
+  
+  if(fluentRewrite.reply){
+    result = fluentRewrite.reply
+  }else{
+    window.postMessage({ type: "TS_GEMINI_ERROR", error: fluentRewrite.error }, "*");
+    return
+  }
+  
+  if(_rewriteWithFormat){
+    const prompt = buildPromptAlign(fluentRewrite.reply, textWithPlaceholders)
+    const response = await chrome.runtime.sendMessage({
+      action: "askGemini",
+      text: prompt,
+      history: [],
+    });
+    if(!response.reply){
+      console.warn("Error: ", response.error)
+      window.postMessage({ type: "TS_GEMINI_ERROR", error: response.error }, "*");
+    }else{
+      result = response.reply
+    }
+  }
+  window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result }, "*");
+  /*
+
   // try Chrome Nano
   let output = await tryChromeAI(freeWritePrompt);
 
@@ -198,6 +230,8 @@ export async function handleHybridRequest(eventData) {
       } else {
         result = fluentRewrite;
       }
+    } else{
+       window.postMessage({ type: "TS_GEMINI_ERROR", error: fluentRewrite.error }, "*");
     }
 
     if (result.success) {
@@ -218,6 +252,7 @@ export async function handleHybridRequest(eventData) {
 
   window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
   return;
+  */
 }
 
 console.log("✅ Modular Hybrid AI handler ready");
