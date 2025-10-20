@@ -1,11 +1,13 @@
 // chatPanel.js
+import { positionPanel } from "./utils/helpers.js"
 let panelVisible = false;
 let lastHighlight = '';
-let chatHistoryMap = new Map();
+let chatHistoryMap = new Map(); // used for chat replay on the DOM
 let scrollListenerAdded = false;
 let anchorY = 0;
 let isMouseOverPanel = false;
 let isInputHandlerSet = false;
+let visibilityCallbacks = []
 
 // ----------------- CSS Injection -----------------
 export function injectCSS() {
@@ -49,6 +51,25 @@ export function injectCSS() {
         background: linear-gradient(90deg, rgba(108,99,255,0.06), transparent);
         border-bottom: 1px solid rgba(108,99,255,0.06);
     }
+    /* --- CLOSE BUTTON --- */
+    .tsCloseButton {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: #777;
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.2s ease, transform 0.3s ease;
+    }
+
+    .tsCloseButton:hover {
+      color: #6C63FF;
+      transform: rotate(90deg) scale(1.1);
+    }
+
 
     /* --- Messages Area --- */
     .tsChatPanelMessages { 
@@ -176,6 +197,7 @@ export function injectCSS() {
     border-radius: 10px;
     cursor: pointer;
     font-size: 13px;
+    margin-left: 8px;
     box-shadow: 0 6px 16px rgba(108,99,255,0.06);
     transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
   }
@@ -317,7 +339,9 @@ export function injectHTML() {
     container.id = 'tsChatPanelContainer';
     container.className = 'tsChatPanelContainer';
     container.innerHTML = `
-        <div class="tsChatPanelHeader">Gideon</div>
+        <div class="tsChatPanelHeader">Gideon
+        <div class="tsCloseButton">x</div>
+        </div>
         <div class="tsChatPanelMessages"></div>
         <div class="tsChatPanelInput">
             <input type="text" placeholder="Ask for more detail..." />
@@ -353,6 +377,16 @@ function hideTypingBubble() {
 }
 
 // ----------------- Chat Messaging -----------------
+function addToChatHistoryMap(userText, aiText) {
+  const hash = generateHash(lastHighlight.toString().trim());
+  if (!chatHistoryMap.has(hash)) {
+    chatHistoryMap.set(hash, []);
+  }
+  const history = chatHistoryMap.get(hash);
+  history.push({ type: 'user', text: userText });
+  history.push({ type: 'ai', text: aiText });
+}
+
 export function addUserMessage(text, saveToHistory = true) {
     const messages = document.querySelector('.tsChatPanelMessages');
     if (!messages) return;
@@ -363,12 +397,6 @@ export function addUserMessage(text, saveToHistory = true) {
     messages.appendChild(msg);
     autoScroll();
     showTypingBubble();
-
-    if (saveToHistory) {
-      const hash = generateHash(lastHighlight.toString().trim())
-      if (!chatHistoryMap.has(hash)) chatHistoryMap.set(hash, []);
-      chatHistoryMap.get(hash).push({ type: 'user', text });
-    }
 }
 
 export function addAIResponse(text, saveToHistory = true) {
@@ -431,12 +459,6 @@ export function addAIResponse(text, saveToHistory = true) {
     msg.appendChild(copyBtn);
     messages.appendChild(msg);
     autoScroll();
-
-    if (saveToHistory) {
-      const hash = generateHash(lastHighlight.toString().trim())
-      if (!chatHistoryMap.has(hash)) chatHistoryMap.set(hash, []);
-      chatHistoryMap.get(hash).push({ type: 'ai', text });
-    }
 }
 
 function autoScroll() {
@@ -451,6 +473,22 @@ export async function attachInputHandler(callback) {
     const input = container.querySelector('input');
     if (!input) return;
 
+    const sendMessage = async () => {
+        const userText = input.value.trim();
+        if (!userText) return;
+        input.value = '';
+        await callback(userText);
+    };
+
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
+
+    // If a cancel button is active, a response is being generated.
+    // Don't show the send button in this case. It will be restored later.
+    if (container.querySelector('.tsCancelBtn')) {
+        isInputHandlerSet = true;
+        return;
+    }
+
     let sendBtn = container.querySelector('.tsChatSendBtn');
     if (!sendBtn) {
         sendBtn = document.createElement('button');
@@ -460,66 +498,65 @@ export async function attachInputHandler(callback) {
         container.appendChild(sendBtn);
     }
 
-    const sendMessage = async () => {
-        const userText = input.value.trim();
-        if (!userText) return;
-        input.value = '';
-        await callback(userText);
-    };
-
-  // Submit on Enter (keydown) and ensure clicks don't bubble to document (which may collapse the panel)
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
-  sendBtn.addEventListener('click', (e) => { e.stopPropagation(); sendMessage(); });
+    sendBtn.addEventListener('click', (e) => { e.stopPropagation(); sendMessage(); });
     isInputHandlerSet = true;
 }
 
 // Helper: create a fresh send button wired to the current input handler, or reattach the handler
-function createOrRestoreSendButton(callback) {
+export function createOrRestoreSendButton(onSend) {
   const inputContainer = document.querySelector('.tsChatPanelInput');
-  if (!inputContainer) return null;
-  // If there's already a send button, ensure it has the click handler
-  let sendBtn = inputContainer.querySelector('.tsChatSendBtn');
-  const input = inputContainer.querySelector('input');
+  if (!inputContainer) return;
 
-  const bindHandler = () => {
-    // remove any existing to avoid duplicate handlers
-    try { sendBtn?.replaceWith(sendBtn); } catch (e) { /* noop - used to normalize */ }
-    sendBtn.type = 'button';
-    // clear previous listeners by cloning if necessary
+  // Try to find an existing send button
+  let sendBtn = inputContainer.querySelector('.tsChatSendBtn');
+
+  // Case 1: A hidden send button exists — unhide and rebind
+  if (sendBtn) {
+    if (sendBtn.dataset.hiddenByCancel === '1') {
+      sendBtn.style.display = '';
+      delete sendBtn.dataset.hiddenByCancel;
+    }
+
+    // Remove old click listeners by cloning
     const newBtn = sendBtn.cloneNode(true);
+    newBtn.type = 'button';
+
+    // Clean event logic: stop propagation and handle text
     newBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!input) return;
-      const text = input.value.trim();
+      const inputField = inputContainer.querySelector('input');
+      if (!inputField) return;
+      const text = inputField.value.trim();
       if (!text) return;
-      input.value = '';
-      callback(text);
+      inputField.value = '';
+      if (typeof onSend === 'function') onSend(text);
     });
-    try { sendBtn.replaceWith(newBtn); } catch (e) { /* ignore */ }
-    sendBtn = newBtn;
-    return sendBtn;
-  };
 
-  if (sendBtn) {
-    return bindHandler();
+    // Replace the old node to clear previous handlers
+    try { sendBtn.replaceWith(newBtn); } catch (err) { console.error('Failed to replace send button:', err); }
+    return;
   }
 
-  // create a new button if none exists
+  // Case 2: No button exists — create a new one
   sendBtn = document.createElement('button');
-  sendBtn.type = 'button';
   sendBtn.className = 'tsChatSendBtn';
-  sendBtn.innerHTML = '✈️';
+  sendBtn.type = 'button';
+  sendBtn.title = 'Send message';
+  sendBtn.textContent = '✈️';
+
   sendBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!input) return;
-    const text = input.value.trim();
+    const inputField = inputContainer.querySelector('input');
+    if (!inputField) return;
+    const text = inputField.value.trim();
     if (!text) return;
-    input.value = '';
-    callback(text);
+    inputField.value = '';
+    if (typeof onSend === 'function') onSend(text);
   });
+
   inputContainer.appendChild(sendBtn);
-  return sendBtn;
 }
+
 
 // ----------------- Panel Controls -----------------
 export function openChatPanel(highlightedText) {
@@ -529,12 +566,21 @@ export function openChatPanel(highlightedText) {
     panel.style.display = 'flex';
 
     const header = panel.querySelector(".tsChatPanelHeader")
-    setOwnText(header, "✨AI - Explaining highlighted text…")
+    setOwnText(header, "✨Gideon - Ask & Learn.")
+    const btnClose = header.querySelector(".tsCloseButton")
+    btnClose.title = "Close"
+    if(btnClose) btnClose.onclick = () => {
+      gracefullyRemovePanel();
+    };
 
     const messages = document.querySelector('.tsChatPanelMessages');
     messages.innerHTML = '';
 
     panelVisible = true;
+    visibilityCallbacks.forEach(callback =>{
+      callback(panelVisible)
+    })
+
     lastHighlight = highlightedText;
     const hash = generateHash(lastHighlight.toString().trim());
     if (chatHistoryMap.has(hash)) {
@@ -546,18 +592,19 @@ export function openChatPanel(highlightedText) {
         const text = highlightedText.toString().trim();
         sendToGemini(text, getDefaultContext(), true);
     }
-
-    updatePanelPosition();
+    positionPanel(highlightedText, panel)
+    //updatePanelPosition();
     requestAnimationFrame(() => panel.classList.add('tsVisible'));
 
     if (!scrollListenerAdded) {
         window.addEventListener('scroll', () => {
-            updatePanelPosition();
+            //updatePanelPosition();
             checkScrollHide();
         });
         scrollListenerAdded = true;
     }
 }
+
 function setOwnText(el, text) {
     let textNode = [...el.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
     if (textNode) {
@@ -582,7 +629,11 @@ function generateHash(string){
 }
 
 
-  
+export function registerVisibilityCallback(callback){
+  console.log(callback)
+  visibilityCallbacks.push(callback)
+}
+
 export function collapsePanel() {
     const panel = document.getElementById('tsChatPanelContainer');
     if (!panel || !panelVisible) return;
@@ -590,6 +641,7 @@ export function collapsePanel() {
     panel.classList.remove('tsVisible');
     setTimeout(() => panel.style.display = 'none', 300);
     panelVisible = false;
+
 
     let bubble = document.getElementById('tsChatPanelBubble');
     if (!bubble) {
@@ -602,6 +654,10 @@ export function collapsePanel() {
         document.body.appendChild(bubble);
         requestAnimationFrame(() => bubble.classList.remove('tsHidden'));
     }
+
+     visibilityCallbacks.forEach(callback =>{
+      callback(panelVisible)
+    })
 }
 
 export function expandPanel() {
@@ -609,6 +665,9 @@ export function expandPanel() {
     panel.style.display = 'flex';
     requestAnimationFrame(() => panel.classList.add('tsVisible'));
     panelVisible = true;
+     visibilityCallbacks.forEach(callback =>{
+      callback(panelVisible)
+    })
 
     const bubble = document.getElementById('tsChatPanelBubble');
     if (bubble) {
@@ -616,7 +675,7 @@ export function expandPanel() {
         setTimeout(() => bubble.remove(), 300);
     }
 
-    updatePanelPosition();
+    //updatePanelPosition();
 }
 
 export function closePanel() {
@@ -626,6 +685,9 @@ export function closePanel() {
     if (bubble) bubble.remove();
     chatHistoryMap.clear();
     panelVisible = false;
+    visibilityCallbacks.forEach(callback =>{
+      callback(panelVisible)
+    })
 }
 
 // ----------------- Adaptive Positioning -----------------
@@ -673,12 +735,16 @@ function gracefullyRemovePanel() {
     panel.style.opacity = '0';
     setTimeout(() => { if (panel.isConnected) panel.remove(); }, 300);
     panelVisible = false;
+     visibilityCallbacks.forEach(callback =>{
+      callback(panelVisible)
+    })
+
 }
 
 function checkScrollHide() {
     if (!panelVisible) return;
     const currentY = window.scrollY;
-    if (Math.abs(currentY - anchorY) > 200 && !isMouseOverPanel) gracefullyRemovePanel();
+    if (Math.abs(currentY - anchorY) > 50 && !isMouseOverPanel) gracefullyRemovePanel();
 }
 
 // ----------------- Global Events -----------------
@@ -742,6 +808,40 @@ let defaultContext = "";
 // ==============================
 // Utility Functions
 // ==============================
+function removeLastUserMessage() {
+  // 1. Remove from UI
+  /*
+  const messagesContainer = document.querySelector('.tsChatPanelMessages');
+  if (messagesContainer) {
+    const userMessages = messagesContainer.querySelectorAll('.tsChatUserMessage');
+    if (userMessages.length > 0) {
+      userMessages[userMessages.length - 1].remove();
+    }
+  }
+    */
+
+  // Remove from chatHistoryMap (for session replay)
+  const hash = generateHash(lastHighlight.toString().trim());
+  if (chatHistoryMap.has(hash)) {
+    const history = chatHistoryMap.get(hash);
+    // Find and remove the last user message from the array
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].type === 'user') {
+        history.splice(i, 1);
+        break; // Only remove the most recent one
+      }
+    }
+  }
+
+  // Remove from chatHistory (for model context)
+  for (let i = chatHistory.length - 1; i >= 0; i--) {
+    if (chatHistory[i].role === 'user') {
+      chatHistory.splice(i, 1);
+      break; // Only remove the most recent one
+    }
+  }
+}
+
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
@@ -828,12 +928,10 @@ ${text}`;
 // ==============================
 // Main sendToGemini Function
 // ==============================
-export async function sendToGemini(userText, context=defaultContext, withBuildPrompt = false) {
+export async function sendToGemini(userText, context = defaultContext, withBuildPrompt = false) {
   if (!userText || typeof userText !== "string" || userText.trim().length === 0) return;
   addUserMessage(userText);
-  //console.log("Sending to Gemini:", { userText, context, withBuildPrompt });
 
-  // User text summarization
   const userTokens = estimateTokens(userText);
   debugLog(`Raw user tokens: ${userTokens}`);
 
@@ -841,11 +939,9 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
     userText = await summarizeToFit(userText, USER_BUDGET, "user text");
   }
 
-  // Build final prompt
   let finalPrompt = userText;
   if (withBuildPrompt) finalPrompt = buildPrompt(userText, context);
-  console.log("Final prompt before context:", finalPrompt);
-  // Compute total input tokens
+
   const totalTokens =
     estimateTokens(systemPrompt.parts[0].text) + estimateTokens(finalPrompt);
 
@@ -857,13 +953,11 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
     limit: SAFE_INPUT_LIMIT,
   });
 
-  // Last safety compression if total > limit
   if (totalTokens > SAFE_INPUT_LIMIT) {
     debugLog(`⚠️ Final prompt exceeds safe limit (${totalTokens} > ${SAFE_INPUT_LIMIT}), compressing once more.`);
     finalPrompt = await summarizeToFit(finalPrompt, SAFE_INPUT_LIMIT - SYSTEM_BUDGET, "combined prompt");
   }
 
-  // Send to Gemini Nano using streaming port
   chatHistory.push({ role: "user", parts: [{ text: finalPrompt }] });
   chatHistory = trimHistory(chatHistory, MAX_TOKENS);
 
@@ -874,21 +968,22 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
     portAlive = false;
     try {
       if (inputContainer) {
-        createOrRestoreSendButton((text) => sendToGemini(userText, context, withBuildPrompt));
+        createOrRestoreSendButton((text) => sendToGemini(userText, context, false));
       }
       if (inputField) inputField.disabled = false;
     } catch (e) { /* ignore */ }
   });
 
-  // Prepare AI message UI
   const messages = document.querySelector('.tsChatPanelMessages');
   const aiMsg = document.createElement('div');
   aiMsg.className = 'tsChatAIResponse';
+
+  // Cancel button with unique class (do NOT use tsChatSendBtn here)
   const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'tsChatSendBtn tsCancelBtn';
+  cancelBtn.className = 'tsCancelBtn';
   cancelBtn.title = 'Cancel generation';
 
-  // SVG stop icon
+  // SVG stop icon (unchanged)
   const svgns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(svgns, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -935,6 +1030,8 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
 
   const inputContainer = document.querySelector('.tsChatPanelInput');
   const inputField = inputContainer ? inputContainer.querySelector('input') : null;
+
+  // keep an optional clone if you want to use it later (not required for hide/unhide flow)
   let originalSendBtn = null;
   const spinner = document.createElement('span');
   spinner.className = 'tsCancelSpinner';
@@ -942,6 +1039,35 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
   spinner.style.fontSize = '12px';
   spinner.textContent = '';
   let cancelRequested = false;
+
+  // Helper: unhide previously hidden send button (if any). Returns true if unhidden.
+  const unhideExistingSendBtn = () => {
+    if (!inputContainer) return false;
+    const sendBtn = inputContainer.querySelector('.tsChatSendBtn');
+    if (!sendBtn) return false;
+    if (sendBtn.dataset.hiddenByCancel === '1') {
+      createOrRestoreSendButton((text) => sendToGemini(text, context, withBuildPrompt));
+      return true;
+    }
+    return false;
+  };
+
+  // Centralized restore helper: remove cancel button and unhide/create send button
+  const restoreSendButton = () => {
+    try {
+      if (cancelBtn.isConnected) {
+        cancelBtn.remove();
+      }
+
+      // try to unhide an existing send button (preferred)
+      if (unhideExistingSendBtn()) return;
+
+      // if none to unhide, create or restore via helper
+      createOrRestoreSendButton((text) => sendToGemini(text, context, false));
+    } catch (e) {
+      console.error('restoreSendButton failed', e);
+    }
+  };
 
   try {
     port.postMessage({ action: 'start', id: reqId, text: finalPrompt, history: chatHistory });
@@ -960,7 +1086,10 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
       try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
       try { if (inputField) inputField.disabled = false; } catch (e) {}
       port.onMessage.removeListener(onMsg);
+      removeLastUserMessage()
       setTimeout(() => { addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, context); try { if (thinking && thinking.isConnected) thinking.remove(); } catch (e) {} }, 2000);
+      // prefer centralized restore to keep behavior consistent
+      restoreSendButton();
       return;
     }
 
@@ -969,18 +1098,24 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
         try { if (thinking && thinking.isConnected) thinking.textContent = 'Canceled.'; } catch (e) {}
         showCancelNote(aiMsg, 'Canceled.');
       } else {
-        try { if (thinking && thinking.isConnected) thinking.textContent = '⚠️ Error: ' + (m.error || 'Something went wrong'); } catch (e) {}
+        try {
+          if (thinking && thinking.isConnected){
+            debugLog('⚠️ Error' + m.error)
+            thinking.textContent = 'Something went wrong';
+          }
+        } catch (e) {}
       }
       cancelRequested = false;
       hideTypingBubble();
       try {
         if (spinner && spinner.parentNode) spinner.remove();
-        if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn);
-        else if (cancelBtn.isConnected) cancelBtn.remove();
+        // use centralized restore
+        restoreSendButton();
       } catch (e) {}
       try { if (inputField) inputField.disabled = false; } catch (e) {}
       try { port.disconnect(); } catch (e) {}
       port.onMessage.removeListener(onMsg);
+      removeLastUserMessage()
       if (!cancelRequested) addRetryAction(aiMsg, _retryUserText, _retryWithBuildPrompt, context);
       return;
     }
@@ -1000,7 +1135,8 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
     if (m.done) {
       const final = (m.reply && m.reply.trim()) || accumulated;
       try { if (spinner && spinner.parentNode) spinner.remove(); } catch (e) {}
-      try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
+      // restore via centralized helper
+      restoreSendButton();
       try { if (inputField) inputField.disabled = false; } catch (e) {}
       aiMsg.innerHTML = simpleMarkdownToHTML(final);
 
@@ -1046,6 +1182,7 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
 
       copyBtn.addEventListener('click', handleCopy);
       aiMsg.appendChild(copyBtn);
+      addToChatHistoryMap(_retryUserText, final)
 
       chatHistory.push({ role: 'model', parts: [{ text: final }] });
       chatHistory = trimHistory(chatHistory, MAX_TOKENS);
@@ -1057,12 +1194,19 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
 
   port.onMessage.addListener(onMsg);
 
+  // Insert cancel button and hide send button (if present)
   if (inputContainer) {
     const sendBtn = inputContainer.querySelector('.tsChatSendBtn');
     if (sendBtn) {
-      originalSendBtn = sendBtn;
-      try { sendBtn.replaceWith(cancelBtn); } catch (e) {}
+      // keep a clone if you want an independent copy (optional)
+      originalSendBtn = sendBtn.cloneNode(true);
+      // hide the real send button so it's not visible (and mark it)
+      sendBtn.dataset.hiddenByCancel = '1';
+      sendBtn.style.display = 'none';
+      // append cancelBtn to the input container
+      inputContainer.appendChild(cancelBtn);
     } else {
+      // no send btn currently — just append cancel
       inputContainer.appendChild(cancelBtn);
     }
   }
@@ -1073,7 +1217,8 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
       cancelRequested = true;
       if (!portAlive) {
         thinking.textContent = 'Canceled by you.';
-        try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
+        // restore visible send button
+        restoreSendButton();
         try { if (inputField) inputField.disabled = false; } catch (e) {}
         return;
       }
@@ -1085,7 +1230,7 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
       console.error('Cancel request failed', err);
       thinking.textContent = 'Canceled by you.';
       cancelRequested = false;
-      try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
+      restoreSendButton();
       try { if (inputField) inputField.disabled = false; } catch (e) {}
     }
     thinking.textContent = 'Canceling…';
@@ -1119,6 +1264,8 @@ export async function sendToGemini(userText, context=defaultContext, withBuildPr
     } catch (e) { /* ignore */ }
   }
 }
+
+
 
 // ==============================
 // Prompt Builder

@@ -1,4 +1,4 @@
-(async () => {
+(  async () => {
   if (document.getElementById("toneshift-sidebar-host")) return;
 
   console.log("ToneShift sidebar injected!");
@@ -20,7 +20,14 @@
    const getRewriteContextModule = await import(chrome.runtime.getURL('utils/getRewriteContext.js'));
 
    const chatPanelModule = await import(chrome.runtime.getURL('chatPanel.js'));
-  //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
+   chatPanelModule.registerVisibilityCallback((state) => {
+      isShowingPanels = state
+    })
+
+    const helperFunction = await import(chrome.runtime.getURL('utils/helpers.js'));
+
+
+   //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
   
    // --- Floating icon CSS ---
   const style = document.createElement("style");
@@ -619,6 +626,8 @@ const apiKeySaveBtn = qs('ts-set-key');
   let mapKeyPool = 0
   let rewriteWithFormat = false
   let latestModeSelect = ""
+  let isShowingPanels = false
+
 
   // Inline preview state
   let isPreviewMode = false;
@@ -658,7 +667,7 @@ const apiKeySaveBtn = qs('ts-set-key');
       chrome.storage.local.get(['showFloatingOnHighlight'], (data) => {
         const enabled = data && data.showFloatingOnHighlight;
         // Default to true when unset
-        if (enabled === undefined || enabled === null || enabled === true) {
+        if (enabled === undefined || enabled === null || enabled === true && !isShowingPanels) {
           // Store both range and rect for later use
           try {
             floatingButtonState.range = range.cloneRange();
@@ -1266,7 +1275,6 @@ const apiKeySaveBtn = qs('ts-set-key');
   // Load the saved state when the popup/page opens
   // This ensures the checkbox reflects the user's last choice
   window.addEventListener('load', () => {
-    console.log("dfffffffffffffffffffffffffffffffffffffffffgt loaded")
       chrome.storage.local.get('rewriteWithFormat', (data) => {
           if (data.rewriteWithFormat !== undefined) {
               preserveFormattingCheckbox.checked = data.rewriteWithFormat;
@@ -2154,15 +2162,22 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     } else if (typeof originalTextOrSelection === "string") {
       originalText = originalTextOrSelection;
     }
-    console.log("Creating mode preset card for text:", originalText.substring(0, 30) + "...");
+    //console.log("Creating mode preset card for text:", originalText.substring(0, 30) + "...");
 
     const card = document.createElement("div");
-    card.className = "tsMicrocard";
+    card.className = "tsMicrocard sidebar";
     document.body.appendChild(card);
     refineMicroCard = card; // store reference for later usage/removal
     //console.log(refineMicroCard)
 
+    const header = document.createElement("div")
+    header.className = "tsMicrocardHeader"
+    setOwnText(header, "✨Gideon – Rewrite")
+    card.appendChild(header)
+
     // Card positioning logic
+    helperFunction.positionPanel(originalTextOrSelection, card)
+    /*
     const cardWidth = 380; // match CSS width
     const cardHeight = 150; // approximate; could measure dynamically
 
@@ -2195,7 +2210,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       card.style.top = "40%";
       card.style.left = "50%";
       card.style.transform = "translate(-50%, -50%)";
-    }
+    }*/
 
 
     // Track anchor position
@@ -2209,19 +2224,20 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     // Fade-out function
     function gracefullyRemoveCard() {
       if (!card.isConnected) return;
-      console.log("Fading out and removing microcard");
-      cleanupListeners();
+      //console.log("Fading out and removing microcard");
       card.style.transition = 'opacity 0.3s ease';
       card.style.opacity = '0';
       setTimeout(() => {
         if (card.isConnected) card.remove();
+        cleanupListeners();
       }, 300);
+      isShowingPanels = false
     }
 
     // Scroll listener: fade out only if scrolled away AND not hovering
     function handleScroll() {
       const currentY = window.scrollY;
-      if (Math.abs(currentY - anchorY) > 200 && !isMouseOverCard) {
+      if (Math.abs(currentY - anchorY) > 50 && !isMouseOverCard) {
         window.removeEventListener('scroll', handleScroll);
         window.removeEventListener('selectionchange', handleSelection);
         gracefullyRemoveCard();
@@ -2242,6 +2258,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     // Selection listener: fade out on new highlight
     function handleSelection(event) {
+      return
       const sel = window.getSelection();
       if (card.contains(event.target)) return; // ignore if selection change originated inside card
       if (sel && sel.toString().trim().length > 0) {
@@ -2252,6 +2269,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     }
     // Click-outside listener: fade out when user clicks anywhere not inside the card
     function handleClickOutside(event) {
+      
       if (!card.contains(event.target)) {
         cleanupListeners();
         gracefullyRemoveCard();
@@ -2274,6 +2292,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       card.removeEventListener('mouseleave', handleMouseLeave);
     }
 
+    isShowingPanels = true
     return card
   }
 
@@ -2296,6 +2315,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     const chip = document.createElement("button");
     chip.className = "tsChip";
     chip.textContent = "x";
+    chip.style.color = "#817a7aff"
+    chip.title = "Hide Adjust Buttons"
     chip.onclick = (() => {
       chipContainer.style.display = "none";
       const btn = document.querySelector("#tsChangeModeButton")
@@ -2375,7 +2396,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   async function buildOutputDisplayUI(originalText, rewriteMapKey, microcard) {
     const card = microcard;
     //console.log(card)
-    card.innerHTML = "";
+    //card.innerHTML = "";
+    let m = card.querySelector(".tsOutputContainer")
+    if(m) m.remove()
 
     const { tsLastMode: lastUsed } = await chrome.storage.local.get("tsLastMode");
     const mode = lastUsed
@@ -2493,13 +2516,16 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     actionBar.append(modeSelectionCard, btnReplace);
 
     // Create close ("X") button positioned at the top-right
+    const header = card.querySelector(".tsMicrocardHeader")
     const btnClose = document.createElement('button');
     btnClose.className = 'tsCloseButton';
     btnClose.textContent = '×';
+    btnClose.title = "Close"
     btnClose.onclick = () => {
       card.style.transition = 'opacity 0.3s ease';
       card.style.opacity = '0';
       setTimeout(() => card.remove(), 300);
+      isShowingPanels = false
     };
     // Append to card
     card.prepend(btnClose);
@@ -2564,7 +2590,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
       padding: 16px;
-      width: 480px;
+      width: 600px;
       max-width: calc(100vw - 32px); /* prevent overflowing horizontally */
       z-index: 1000;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -2590,6 +2616,24 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     @media (prefers-color-scheme: dark) {
       .tsMicrocard {
+        background: #1E1E1E;
+        color: #EAEAEA;
+        border: 1px solid #3A3A3A;
+      }
+    }
+
+    /* ==== Header ==== */
+    .tsMicrocardHeader { 
+        display: "block";
+        padding: 12px 14px; 
+        font-weight: 700; 
+        font-size: 15px;
+        color: #1E1E1E;
+        background: linear-gradient(90deg, rgba(108,99,255,0.06), transparent);
+        border-bottom: 1px solid rgba(108,99,255,0.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      .tsMicrocardHeader {
         background: #1E1E1E;
         color: #EAEAEA;
         border: 1px solid #3A3A3A;

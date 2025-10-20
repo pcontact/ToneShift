@@ -41,7 +41,8 @@
         "utils/getRewriteContext.js",
         "libs/Readability.js",
         "../pageHybrid",
-        "chatPanel.js"
+        "chatPanel.js",
+        "utils/helpers.js"
       ],
       "matches": ["<all_urls>"]
     }
