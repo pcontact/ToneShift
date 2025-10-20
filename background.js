@@ -1,6 +1,5 @@
 
-import { GoogleGenerativeAI } from "./vendor/generative-ai.bundle.js";
-
+import { GoogleGenerativeAI } from "./libs/vendor/generative-ai.bundle.js"
 let model = null;
 let isLocalMode = true
 // Load API key from storage and init model
