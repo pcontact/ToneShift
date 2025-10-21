@@ -92,8 +92,14 @@ export function injectCSS() {
         align-items: center;
         background: transparent;
     }
-
-    .tsChatPanelInput input {
+    .tsTextInputContainer {
+      display:flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      max-width: 720px;
+    }
+    .tsTextInputContainer input {
         flex: 1;
         padding: 10px 12px;
         border-radius: 10px;
@@ -344,7 +350,10 @@ export function injectHTML() {
         </div>
         <div class="tsChatPanelMessages"></div>
         <div class="tsChatPanelInput">
-            <input type="text" placeholder="Ask for more detail..." />
+            <div class = "tsTextInputContainer">
+              <div style="display:none">Search</div>
+              <input type="text" placeholder="Ask for more detail..." />
+            </div>
         </div>
     `;
     document.body.appendChild(container);
@@ -352,7 +361,7 @@ export function injectHTML() {
     container.addEventListener('mouseenter', () => isMouseOverPanel = true);
     container.addEventListener('mouseleave', () => {
         isMouseOverPanel = false;
-        checkScrollHide();
+        //checkScrollHide();
     });
 }
 
@@ -1028,8 +1037,10 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
   const _retryUserText = userText;
   const _retryWithBuildPrompt = withBuildPrompt;
 
-  const inputContainer = document.querySelector('.tsChatPanelInput');
-  const inputField = inputContainer ? inputContainer.querySelector('input') : null;
+  const textInputcontainer = document.querySelector('.tsTextInputContainer');
+  const inputField = textInputcontainer ? textInputcontainer.querySelector('input') : null;
+
+  const inputContainer = document.querySelector(".tsChatPanelInput")
 
   // keep an optional clone if you want to use it later (not required for hide/unhide flow)
   let originalSendBtn = null;
