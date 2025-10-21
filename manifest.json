@@ -42,7 +42,8 @@
         "libs/Readability.js",
         "../pageHybrid",
         "chatPanel.js",
-        "utils/helpers.js"
+        "utils/helpers.js",
+        "searchModule.js"
       ],
       "matches": ["<all_urls>"]
     }

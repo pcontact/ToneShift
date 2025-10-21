@@ -29,6 +29,9 @@
 
     const helperFunction = await import(chrome.runtime.getURL('utils/helpers.js'));
 
+    const searchModule = await import(chrome.runtime.getURL('searchModule.js'));
+    searchModule.init()
+
 
    //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
   
@@ -552,7 +555,7 @@
             <span class="tooltip" role="tooltip">
               Preserve existing text styling, bold, italics, links, and other HTML formatting.<br>
               <span>Note: When enabled, rewrites can take more time and also more token consumption when
-              using a Gemini API key.</span>
+              using a cloud Gemini model.</span>
             </span>
           </div>
           <br><br>

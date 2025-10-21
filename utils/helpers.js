@@ -118,3 +118,74 @@ export function positionPanel(selection, panel, opts = {}) {
   if (!panel.style.zIndex) panel.style.zIndex = '9999';
   return { top: Math.round(top), left: Math.round(left), placement };
 }
+
+/**
+ * Positions an element near a point on the screen, using logic similar to positionPanel.
+ * It prefers to place the panel below the point, then above, and clips it to the viewport.
+ * @param {HTMLElement} panel The element to position.
+ * @param {{x: number, y: number}} point The coordinates to position near.
+ */
+export function positionPanelAtPoint(panel, point) {
+  const margin = 8;
+
+  // Helper to measure the panel even if it's hidden
+  function measurePanel(el) {
+    const computed = getComputedStyle(el);
+    let restored = null;
+    if (computed.display === 'none') {
+      restored = {
+        visibility: el.style.visibility,
+        display: el.style.display,
+        position: el.style.position,
+      };
+      el.style.visibility = 'hidden';
+      el.style.display = 'block';
+      el.style.position = el.style.position || 'fixed';
+      if (!el.isConnected) document.body.appendChild(el);
+    }
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    if (restored) {
+      el.style.visibility = restored.visibility;
+      el.style.display = restored.display;
+      el.style.position = restored.position;
+    }
+    return { width: w, height: h };
+  }
+
+  const { width: panelWidth, height: panelHeight } = measurePanel(panel);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const rect = { top: point.y, bottom: point.y, left: point.x, width: 0, height: 0 };
+
+  let top = 0;
+  let left = 0;
+  
+  const spaceBelow = vh - rect.bottom;
+  const spaceAbove = rect.top;
+
+  // Prefer below, then above, otherwise center vertically
+  if (spaceBelow >= panelHeight + margin) {
+    top = rect.bottom + margin;
+  } else if (spaceAbove >= panelHeight + margin) {
+    top = rect.top - panelHeight - margin;
+  } else {
+    top = (vh - panelHeight) / 2;
+  }
+
+  // Center horizontally on the point
+  left = rect.left - panelWidth / 2;
+
+  // Clip to viewport
+  const maxLeft = Math.max(vw - panelWidth, 0);
+  const maxTop = Math.max(vh - panelHeight, 0);
+  left = Math.min(Math.max(left, 0), maxLeft);
+  top = Math.min(Math.max(top, 0), maxTop);
+
+  // Apply final styling
+  panel.style.position = 'fixed';
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(top)}px`;
+  if (!panel.style.zIndex) panel.style.zIndex = '9999';
+}
