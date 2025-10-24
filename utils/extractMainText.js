@@ -22,7 +22,7 @@ export function extractMainTextFromDocument(inputDocument) {
 
   // --- Helpers ---
   function isBoilerplate(node) {
-    return /aside|nav|footer|header|sidebar|ads|advertisement/i.test(node.className || "");
+    return (/aside|nav|footer|header|sidebar|ads|advertisement/i.test(node.className || "") || node.className.startsWith("ts"));
   }
 
   function scoreNode(node) {

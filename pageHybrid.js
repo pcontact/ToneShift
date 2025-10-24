@@ -192,8 +192,10 @@ export async function handleHybridRequest(eventData) {
   
   if(fluentRewrite.reply){
     result = fluentRewrite.reply
+    console.log("Result: ", result)
   }else{
-    window.postMessage({ type: "TS_GEMINI_ERROR", error: fluentRewrite.error }, "*");
+    console.log("Error: ",fluentRewrite)
+    window.postMessage({ type: "TS_GEMINI_ERROR", error: fluentRewrite }, "*");
     return
   }
   

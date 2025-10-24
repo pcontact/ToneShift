@@ -1,12 +1,13 @@
 // chatPanel.js
-import { positionPanel } from "./utils/helpers.js"
+import { positionPanel, positionPanelAtPoint } from "./utils/helpers.js"
+import { extractMainTextFromDocument } from "./utils/extractMainText.js"
 let panelVisible = false;
-let lastHighlight = '';
+let chatHistoryMapKey = ''
 let chatHistoryMap = new Map(); // used for chat replay on the DOM
 let scrollListenerAdded = false;
 let anchorY = 0;
 let isMouseOverPanel = false;
-let isInputHandlerSet = false;
+export let isInputHandlerSet = false;
 let visibilityCallbacks = []
 
 // ----------------- CSS Injection -----------------
@@ -18,10 +19,13 @@ export function injectCSS() {
     /* --- Global Reset for Isolation --- */
     .tsChatPanelContainer, 
     .tsChatPanelContainer * {
-        all: unset;
         box-sizing: border-box;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
     }
+    .tsChatPanelContainer > * {
+      all: unset;
+    }
+
 
     /* --- Core Panel (match microcard look) --- */
     .tsChatPanelContainer { 
@@ -35,6 +39,7 @@ export function injectCSS() {
         overflow: hidden; z-index: 999999;
         transform: translateY(10px);
         opacity: 0;
+        height: 400px;
         transition: transform 0.28s cubic-bezier(.2,.9,.2,1), opacity 0.2s ease, top 0.25s ease, left 0.25s ease;
     }
     .tsChatPanelContainer.tsVisible { 
@@ -59,7 +64,7 @@ export function injectCSS() {
       background: none;
       border: none;
       color: #777;
-      font-size: 18px;
+      font-size: 14px;
       cursor: pointer;
       line-height: 1;
       transition: color 0.2s ease, transform 0.3s ease;
@@ -93,26 +98,36 @@ export function injectCSS() {
         background: transparent;
     }
     .tsTextInputContainer {
-      display:flex;
+      display: flex;
       flex-direction: column;
       gap: 8px;
       width: 100%;
       max-width: 720px;
     }
-    .tsTextInputContainer input {
-        flex: 1;
-        padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid rgba(108,99,255,0.12);
-        outline: none;
-        font-size: 14px;
-        color: #222;
-        background: #fff;
-        box-shadow: inset 0 1px 0 rgba(0,0,0,0.02);
+
+    .tsTextInputContainer textarea {
+      width: 100%;
+      padding: 5px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(108, 99, 255, 0.12);
+      outline: none;
+      font-size: 14px;
+      color: #222;
+      background: #e0dcdcff;
+      box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.02);
+      
+      resize: none;
+      overflow-y: hidden; /* handled dynamically */
+      line-height: 20px;
+      min-height: 20px; /* one line */
+      max-height: 100px; /* five lines (5 * 20px) */
+      white-space: pre-wrap;
+      word-wrap: break-word;
     }
 
     .tsChatSendBtn {
         display: flex;
+        z-index: 9999;
         align-items: center;
         justify-content: center;
         background: #6C63FF;
@@ -127,10 +142,22 @@ export function injectCSS() {
         transition: transform 0.12s ease, box-shadow 0.12s ease;
         box-shadow: 0 6px 16px rgba(108,99,255,0.14);
     }
+    .tsChatSendBtn svg {
+      width: 20px;
+      height: 20px;
+      vertical-align: middle;
+      fill: currenColor;
+    }
 
     .tsChatSendBtn:hover {
         transform: translateY(-1px) scale(1.02);
         box-shadow: 0 10px 24px rgba(108,99,255,0.18);
+    }
+    .tsChatSendBtn:hover:disabled{
+      transform: none;
+    }
+    .tsChatSendBtn:disabled{
+      background: #b1adf1ff;
     }
 
   /* --- Cancel button variant (uses same layout but different icon states) --- */
@@ -259,7 +286,10 @@ export function injectCSS() {
         font-size: 14px;
         color: #111;
         box-shadow: 0 4px 12px rgba(16,24,40,0.04);
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
+    .tsChatUserMessage:hover .tsCopyBtn { opacity: 1; transform: translateY(-2px); }
 
     /* === AI Chat Response Bubble — microcard inspired === */
     .tsChatAIResponse {
@@ -273,6 +303,7 @@ export function injectCSS() {
         max-width: 80%;
         line-height: 1.6;
         word-break: break-word;
+        overflow-wrap: break-word;
         transition: background 0.18s ease, box-shadow 0.18s ease;
         white-space: normal;
         box-shadow: 0 8px 24px rgba(38,32,63,0.06);
@@ -334,35 +365,153 @@ export function injectCSS() {
     @keyframes tsTypingDots { 0%,20% { opacity: 0.18; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } 100% { opacity: 0.18; transform: translateY(0); } }
     @keyframes tsTypingFadeIn { to { opacity: 1; transform: translateY(0); } }
     @keyframes tsTypingFadeOut { to { opacity: 0; transform: translateY(5px); } }
+    
+    .tsDisclaimerBadge{
+      font-size: 10px;
+      padding-bottom:4px;
+      color: #797575ff;
+      justify-content: center;
+      text-align:center;
+    }
+
+    .tsChatHomePageContainer { 
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      flex-direction: column;
+      align-items: stretch;       /* allows children to fill width */
+      justify-content: center;    /* vertically centers children */
+      width: 100%;
+      max-width: 1000px;          /* optional: prevent it from getting too wide */
+      padding: 20px 50px;            /* horizontal padding */
+      box-sizing: border-box;     /* ensures padding doesn't break layout */
+      display:none;
+    }
+    .tsChatHomePageContainer.tsVisible { 
+        display: flex;
+    }
+    .tsChatPanelGreeting {
+      font-weight: bold;     /* makes the text bold */
+      text-align: center;    /* centers the text horizontally */
+      width: 100%;           /* ensures it spans the parent width */
+      margin: 0 auto;        /* keeps it centered if it’s a block element */
+      display: block;        /* ensures text-align works predictably */
+      font-size:25px
+  }
+
+
+    .tsChatPanelHomeActionBar {
+        padding:10px;
+        display: grid;
+        grid-template-columns: repeat(2, auto);
+        justify-content: center;
+        align-items: center;
+        gap: 1rem; /* space between buttons */
+        width: 100%;
+        height: 100%; /* or a fixed height if needed */
+        text-align: center;
+    }
+
+    .tsChatPanelHomeActionBar button {
+        padding: 0.2rem 0.6rem;    /* smaller padding = smaller button */
+        font-size: 0.8rem;         /* scales down the text */
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        background-color: #6C63FF;
+        color: white;
+        transition: background-color 0.3s ease;
+        width: auto;               /* ensures buttons size to their text */
+    }
+
+
+    .tsChatPanelHomeActionBar button:hover {
+        transform: translateY(-1px) scale(1.02);
+        box-shadow: 0 10px 24px rgba(108,99,255,0.18);
+    }
+
+
+
+
+
     `;
     document.head.appendChild(style);
 }
 
 // ----------------- HTML Injection -----------------
-export function injectHTML() {
+export async function injectHTML() {
     if (document.getElementById('tsChatPanelContainer')) return;
+    const isCloudAI =  await chrome.storage.local.get("useCloudModel");
+    let aiModeLabel = isCloudAI.useCloudModel ? "Cloud AI" : "Local AI"
+
     const container = document.createElement('div');
     container.id = 'tsChatPanelContainer';
     container.className = 'tsChatPanelContainer';
     container.innerHTML = `
         <div class="tsChatPanelHeader">Gideon
-        <div class="tsCloseButton">x</div>
+          <div class="tsCloseButton">x</div>
         </div>
-        <div class="tsChatPanelMessages"></div>
+        <div class="tsChatPanelMessages">
+        
+          <div class="tsChatHomePageContainer">
+            <div class="tsChatPanelGreeting">How can i help you?</div>
+            <div class="tsChatPanelHomeActionBar">
+              <button id="tsChatPanelSummarizeBtn">Summarize page</button>
+              <button id="tsChatPanelExplainBtn"> Help me explain</button>
+            </div>
+          </div>
+
+        </div>
+
         <div class="tsChatPanelInput">
             <div class = "tsTextInputContainer">
               <div style="display:none">Search</div>
-              <input type="text" placeholder="Ask for more detail..." />
+              <textarea id="tsChatPanelTextInput" placeholder="Ask for more detail..." /></textarea>
+              
             </div>
         </div>
+         <div class="tsDisclaimerBadge">AI generated. Using current page as context. (${aiModeLabel})</div>
     `;
     document.body.appendChild(container);
+    const textarea = document.getElementById('tsChatPanelTextInput');
+    const lineHeight = 20; // matches CSS line-height
+    const maxLines = 5;
+
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto'; // reset
+      const scrollHeight = textarea.scrollHeight;
+      const maxHeight = lineHeight * maxLines;
+      textarea.style.overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
+      textarea.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+    });
 
     container.addEventListener('mouseenter', () => isMouseOverPanel = true);
     container.addEventListener('mouseleave', () => {
         isMouseOverPanel = false;
         //checkScrollHide();
     });
+
+    const summarizeBtn = container.querySelector("#tsChatPanelSummarizeBtn")
+    const explainBtn = container.querySelector("#tsChatPanelExplainBtn")
+
+    summarizeBtn.addEventListener("click", async (e)=>{
+      e.stopPropagation()
+      container.querySelector(".tsChatHomePageContainer").remove()
+      const userText = "Summarize this page"
+      addUserMessage(userText)
+      showTypingBubble()
+      const awaitSummary = addAIResponse("Summarizing, please wait...")
+      const summary = await getPageSummary();
+      hideTypingBubble()
+      awaitSummary.remove()
+      if(!summary){
+        addAIResponse("Something went wrong while summarizing this page.")
+        return
+      }
+      addAIResponse(summary)
+      addToChatHistoryMap(userText, summary)
+    })
 }
 
 // ----------------- Typing Bubble Functions -----------------
@@ -387,7 +536,9 @@ function hideTypingBubble() {
 
 // ----------------- Chat Messaging -----------------
 function addToChatHistoryMap(userText, aiText) {
-  const hash = generateHash(lastHighlight.toString().trim());
+  if(!chatHistoryMapKey) setChatHistoryMapKey()
+
+  const hash = generateHash(chatHistoryMapKey.toString().trim());
   if (!chatHistoryMap.has(hash)) {
     chatHistoryMap.set(hash, []);
   }
@@ -409,7 +560,7 @@ export function addUserMessage(text, saveToHistory = true) {
 }
 
 export function addAIResponse(text, saveToHistory = true) {
-    hideTypingBubble();
+    //hideTypingBubble();
 
     const messages = document.querySelector('.tsChatPanelMessages');
     if (!messages) return;
@@ -468,6 +619,8 @@ export function addAIResponse(text, saveToHistory = true) {
     msg.appendChild(copyBtn);
     messages.appendChild(msg);
     autoScroll();
+
+    return msg
 }
 
 function autoScroll() {
@@ -476,39 +629,66 @@ function autoScroll() {
 }
 
 // ----------------- Input Handling -----------------
-export async function attachInputHandler(callback) {
-    const container = document.querySelector('.tsChatPanelInput');
-    if (!container) return;
-    const input = container.querySelector('input');
-    if (!input) return;
+let inputHandlers = []
+export async function registerInputHandler(callback) {
+  if(!typeof callback === "function"){
+    console.warn(callback, "is not a function")
+    return
+  }
+  inputHandlers.push(callback)
+  console.log("registering for callback")
+  const container = document.querySelector('.tsChatPanelInput');
+  if (!container) return;
+  console.log("container")
+  const input = container.querySelector('#tsChatPanelTextInput');
+  let sendBtn = container.querySelector('.tsChatSendBtn');
 
-    const sendMessage = async () => {
-        const userText = input.value.trim();
-        if (!userText) return;
-        input.value = '';
-        await callback(userText);
-    };
+  if (!input) return;
 
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
+  console.log("attaching handler")
 
-    // If a cancel button is active, a response is being generated.
-    // Don't show the send button in this case. It will be restored later.
-    if (container.querySelector('.tsCancelBtn')) {
-        isInputHandlerSet = true;
-        return;
-    }
+  const sendMessage = async () => {
+    const userText = input.value.trim();
+    if (!userText) return;
+    input.value = '';
 
-    let sendBtn = container.querySelector('.tsChatSendBtn');
-    if (!sendBtn) {
-        sendBtn = document.createElement('button');
-        sendBtn.type = 'button';
-        sendBtn.className = 'tsChatSendBtn';
-        sendBtn.innerHTML = '✈️';
-        container.appendChild(sendBtn);
-    }
+    const msg = document.querySelector(".tsChatPanelMessages")
+    msg.querySelector(".tsChatHomePageContainer")?.remove()
+    //inputHandlers.forEach(async callback =>{
+      //await callback(userText)
+    //})
+    await callback(userText);
+  };
 
-    sendBtn.addEventListener('click', (e) => { e.stopPropagation(); sendMessage(); });
-    isInputHandlerSet = true;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
+  input.addEventListener('keyup', ()=>{
+    if(input.value.trim().length > 0 && sendBtn.disabled){sendBtn.disabled=false}
+  })
+  // If a cancel button is active, a response is being generated.
+  // Don't show the send button in this case. It will be restored later.
+  if (container.querySelector('.tsCancelBtn')) {
+      isInputHandlerSet = true;
+      console.log("there is cnacel btn")
+      return;
+  }
+
+  if (!sendBtn) {
+      sendBtn = document.createElement('button');
+      sendBtn.type = 'button';
+      sendBtn.className = 'tsChatSendBtn';
+      sendBtn.disabled = true;
+      sendBtn.title = 'Send message';
+      sendBtn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+        <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
+      </svg>
+    `;
+
+      container.appendChild(sendBtn);
+  }
+
+  sendBtn.addEventListener('click', (e) => { e.stopPropagation(); sendMessage(); });
+  isInputHandlerSet = true;
 }
 
 // Helper: create a fresh send button wired to the current input handler, or reattach the handler
@@ -533,7 +713,7 @@ export function createOrRestoreSendButton(onSend) {
     // Clean event logic: stop propagation and handle text
     newBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const inputField = inputContainer.querySelector('input');
+      const inputField = inputContainer.querySelector('#tsChatPanelTextInput');
       if (!inputField) return;
       const text = inputField.value.trim();
       if (!text) return;
@@ -551,11 +731,16 @@ export function createOrRestoreSendButton(onSend) {
   sendBtn.className = 'tsChatSendBtn';
   sendBtn.type = 'button';
   sendBtn.title = 'Send message';
-  sendBtn.textContent = '✈️';
+ sendBtn.innerHTML = `
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+    <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
+  </svg>
+`;
+
 
   sendBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    const inputField = inputContainer.querySelector('input');
+    const inputField = inputContainer.querySelector('#tsChatPanelTextInput');
     if (!inputField) return;
     const text = inputField.value.trim();
     if (!text) return;
@@ -568,9 +753,9 @@ export function createOrRestoreSendButton(onSend) {
 
 
 // ----------------- Panel Controls -----------------
-export function openChatPanel(highlightedText) {
+export async function openChatPanel(highlightedText) {
     injectCSS();
-    injectHTML();
+    await injectHTML();
     const panel = document.getElementById('tsChatPanelContainer');
     panel.style.display = 'flex';
 
@@ -582,28 +767,42 @@ export function openChatPanel(highlightedText) {
       gracefullyRemovePanel();
     };
 
+    if(!highlightedText && !chatHistoryMapKey){
+      panel.querySelector(".tsChatHomePageContainer").classList.add("tsVisible")
+      positionPanel(highlightedText, panel)
+      //updatePanelPosition();
+      requestAnimationFrame(() => panel.classList.add('tsVisible'));
+      panelVisible = true
+      visibilityCallbacks.forEach(callback =>{
+        callback(panelVisible)
+      })
+      return
+    }
+
     const messages = document.querySelector('.tsChatPanelMessages');
     messages.innerHTML = '';
 
-    panelVisible = true;
-    visibilityCallbacks.forEach(callback =>{
-      callback(panelVisible)
-    })
-
-    lastHighlight = highlightedText;
-    const hash = generateHash(lastHighlight.toString().trim());
+    //if(!chatHistoryMapKey) setChatHistoryMapKey()
+    //chatHistoryMapKey = highlightedText;
+    const hash = generateHash(chatHistoryMapKey.toString().trim());
     if (chatHistoryMap.has(hash)) {
         // replay without saving (prevent duplicate writes)
         chatHistoryMap.get(hash).forEach(msg => {
             msg.type === 'ai' ? addAIResponse(msg.text, false) : addUserMessage(msg.text, false);
         });
-    } else {
-        const text = highlightedText.toString().trim();
-        sendToGemini(text, getDefaultContext(), true);
+    } 
+
+    if(highlightedText){
+      const text = highlightedText.toString().trim();
+      sendToGemini(text, getDefaultContext(), true);
     }
     positionPanel(highlightedText, panel)
     //updatePanelPosition();
     requestAnimationFrame(() => panel.classList.add('tsVisible'));
+    panelVisible = true
+    visibilityCallbacks.forEach(callback =>{
+      callback(panelVisible)
+    })
 
     if (!scrollListenerAdded) {
         window.addEventListener('scroll', () => {
@@ -614,6 +813,9 @@ export function openChatPanel(highlightedText) {
     }
 }
 
+function setChatHistoryMapKey(){
+  chatHistoryMapKey = window.location.href
+}
 function setOwnText(el, text) {
     let textNode = [...el.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
     if (textNode) {
@@ -647,9 +849,15 @@ export function collapsePanel() {
     const panel = document.getElementById('tsChatPanelContainer');
     if (!panel || !panelVisible) return;
 
+    closePanel()
+    return
+
     panel.classList.remove('tsVisible');
     setTimeout(() => panel.style.display = 'none', 300);
     panelVisible = false;
+    visibilityCallbacks.forEach(callback =>{
+    callback(panelVisible)
+  })
 
 
     let bubble = document.getElementById('tsChatPanelBubble');
@@ -664,9 +872,6 @@ export function collapsePanel() {
         requestAnimationFrame(() => bubble.classList.remove('tsHidden'));
     }
 
-     visibilityCallbacks.forEach(callback =>{
-      callback(panelVisible)
-    })
 }
 
 export function expandPanel() {
@@ -674,7 +879,7 @@ export function expandPanel() {
     panel.style.display = 'flex';
     requestAnimationFrame(() => panel.classList.add('tsVisible'));
     panelVisible = true;
-     visibilityCallbacks.forEach(callback =>{
+    visibilityCallbacks.forEach(callback =>{
       callback(panelVisible)
     })
 
@@ -697,6 +902,7 @@ export function closePanel() {
     visibilityCallbacks.forEach(callback =>{
       callback(panelVisible)
     })
+    isInputHandlerSet = false
 }
 
 // ----------------- Adaptive Positioning -----------------
@@ -830,7 +1036,7 @@ function removeLastUserMessage() {
     */
 
   // Remove from chatHistoryMap (for session replay)
-  const hash = generateHash(lastHighlight.toString().trim());
+  const hash = generateHash(chatHistoryMapKey.toString().trim());
   if (chatHistoryMap.has(hash)) {
     const history = chatHistoryMap.get(hash);
     // Find and remove the last user message from the array
@@ -928,6 +1134,7 @@ ${text}`;
     history: [],
   });
 
+  console.log("from summarizeTofit, response: ", response)
   const summary = response?.reply || text;
   const after = estimateTokens(summary);
   debugLog(`${label} after summarization: ${after} tokens`);
@@ -939,7 +1146,6 @@ ${text}`;
 // ==============================
 export async function sendToGemini(userText, context = defaultContext, withBuildPrompt = false) {
   if (!userText || typeof userText !== "string" || userText.trim().length === 0) return;
-  addUserMessage(userText);
 
   const userTokens = estimateTokens(userText);
   debugLog(`Raw user tokens: ${userTokens}`);
@@ -949,7 +1155,13 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
   }
 
   let finalPrompt = userText;
-  if (withBuildPrompt) finalPrompt = buildPrompt(userText, context);
+  if (withBuildPrompt){
+    finalPrompt = buildPrompt(userText, context);
+    userText = `Explain this text in simpler terms:` + userText
+    addUserMessage(userText)
+
+  }else{addUserMessage(userText)}
+
 
   const totalTokens =
     estimateTokens(systemPrompt.parts[0].text) + estimateTokens(finalPrompt);
@@ -1026,7 +1238,7 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
   cancelBtn.appendChild(svg);
 
   const thinking = document.createElement('div');
-  thinking.textContent = '…thinking';
+  thinking.textContent = 'Thinking ...';
   aiMsg.appendChild(thinking);
   messages.appendChild(aiMsg);
   autoScroll();
@@ -1038,7 +1250,7 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
   const _retryWithBuildPrompt = withBuildPrompt;
 
   const textInputcontainer = document.querySelector('.tsTextInputContainer');
-  const inputField = textInputcontainer ? textInputcontainer.querySelector('input') : null;
+  const inputField = textInputcontainer ? textInputcontainer.querySelector('#tsChatPanelTextInput') : null;
 
   const inputContainer = document.querySelector(".tsChatPanelInput")
 
@@ -1081,6 +1293,7 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
   };
 
   try {
+    debugLog(("Sending chat history on port: ", chatHistory))
     port.postMessage({ action: 'start', id: reqId, text: finalPrompt, history: chatHistory });
   } catch (err) {
     console.error('Failed to post start message to port', err);
@@ -1091,7 +1304,7 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
 
     if (m.canceled) {
       try { if (thinking && thinking.isConnected) thinking.textContent = 'Canceled.'; } catch (e) {}
-      showCancelNote(aiMsg, 'Canceled.');
+      //showCancelNote(aiMsg, 'Canceled.');
       cancelRequested = false;
       try { if (spinner && spinner.parentNode) spinner.remove(); } catch (e) {}
       try { if (originalSendBtn && cancelBtn.isConnected) cancelBtn.replaceWith(originalSendBtn); else if (cancelBtn.isConnected) cancelBtn.remove(); } catch (e) {}
@@ -1107,7 +1320,7 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
     if (m.error) {
       if (cancelRequested) {
         try { if (thinking && thinking.isConnected) thinking.textContent = 'Canceled.'; } catch (e) {}
-        showCancelNote(aiMsg, 'Canceled.');
+        //showCancelNote(aiMsg, 'Canceled.');
       } else {
         try {
           if (thinking && thinking.isConnected){
@@ -1283,8 +1496,9 @@ export async function sendToGemini(userText, context = defaultContext, withBuild
 // ==============================
 function buildPrompt(text, context, goal = "Simplify the concept and explain the main idea") {
   return `
-    Text to explain:
+    Explain this text in simpler terms:
     ${text}
+    
 
     Context (if any):
     ${context || "N/A"}
@@ -1293,6 +1507,7 @@ function buildPrompt(text, context, goal = "Simplify the concept and explain the
 
 function simpleMarkdownToHTML(markdown) {
   // Escape HTML first
+  if(!markdown) return
   let html = markdown
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -1330,5 +1545,140 @@ export function setDefaultContext(summary) {
 
 export function getDefaultContext() {
   return defaultContext;
-} 
+}
 
+// ----------------- AI summarizer wrapper -----------------
+async function summarizeWithAI(text) {
+  // Defensive: ensure text is present
+  if (!text) {
+    console.warn("summarizeWithAI: no text provided");
+    return "";
+  }
+
+  console.log("Summarizing new content...");
+
+  try {
+    // If there's a shared helper available, prefer it
+    if (typeof summarizeToFit === "function") {
+      try {
+        const target = typeof CONTEXT_BUDGET !== "undefined" ? CONTEXT_BUDGET : 1500;
+        const summary = await summarizeToFit(text, target, "page content");
+        console.log("AI Summary (via summarizeToFit):", summary);
+        return summary || "";
+      } catch (innerErr) {
+        console.warn("summarizeToFit failed:", innerErr);
+        // fall through to fallback
+      }
+    }
+
+    // For debug / dev, produce a simple truncated fallback summary:
+    const fallback = text.slice(0, 1000).replace(/\s+/g, " ").trim();
+    console.log("Using fallback summarizer (dev):", fallback);
+    return fallback || "";
+
+  } catch (err) {
+    console.error("summarizeWithAI unexpected failure:", err);
+    return "";
+  }
+}
+
+// ----------------- Core concurrency-safe summary logic -----------------
+let pageSummary = null;
+let inFlightSummaryPromise = null;
+let observerInitialized = false;
+
+async function getPageSummary() {
+  // Return cached immediately
+  if (pageSummary !== null) return pageSummary;
+
+  // Return existing in-flight promise if present
+  if (inFlightSummaryPromise) return inFlightSummaryPromise;
+
+  const text = typeof extractMainTextFromDocument === "function"
+    ? extractMainTextFromDocument(document)
+    : (console.warn("extractMainTextFromDocument is not defined"), null);
+
+  if (!text) {
+    console.log("No text found to summarize.");
+    return null;
+  }
+
+  inFlightSummaryPromise = (async () => {
+    try {
+      const summary = await summarizeWithAI(text);
+      pageSummary = summary || "";
+      try { setDefaultContext(pageSummary); } catch (e) { /* non-fatal */ }
+
+      if (!observerInitialized) {
+        initObserver();
+        observerInitialized = true;
+      }
+
+      return pageSummary;
+    } catch (err) {
+      console.error("Summarization failed:", err);
+      return null;
+    } finally {
+      inFlightSummaryPromise = null; // allow future re-summarizations
+    }
+  })();
+
+  return inFlightSummaryPromise;
+}
+
+function initObserver() {
+  // Make sure MutationObserver exists and document.body is available
+  if (typeof MutationObserver === "undefined" || !document.body) {
+    console.warn("MutationObserver unavailable or document.body missing");
+    return;
+  }
+
+  const observer = new MutationObserver(() => {
+    debouncedReSummarize();
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  console.log("MutationObserver initialized for re-summarization.");
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+// Debounced re-summarize
+const debouncedReSummarize = debounce(async () => {
+  const text = typeof extractMainTextFromDocument === "function"
+    ? extractMainTextFromDocument(document)
+    : null;
+
+  if (!text) return;
+
+  // If already running, skip (guard)
+  if (inFlightSummaryPromise) {
+    console.log("Summarization already in progress, skipping re-summary.");
+    return;
+  }
+
+  console.log("Detected page change, updating summary...");
+  inFlightSummaryPromise = (async () => {
+    try {
+      const summary = await summarizeWithAI(text);
+      pageSummary = summary || "";
+      try { setDefaultContext(pageSummary); } catch (e) { /* ignore */ }
+      return pageSummary;
+    } catch (err) {
+      console.error("Re-summarization failed:", err);
+    } finally {
+      inFlightSummaryPromise = null;
+    }
+  })();
+}, 3000);
+
+window.addEventListener("load", async () => {
+  // If you prefer setDefaultContext in the load handler, use the following:
+  const summary = await getPageSummary();
+  try { setDefaultContext(summary); } catch (e) { /* ignore */ }
+});

@@ -3,11 +3,13 @@
 
   console.log("ToneShift sidebar injected!");
 
+  /*
   // --- Inject helper scripts into page context ---
   const loaderScript = document.createElement("script");
   loaderScript.type = "module";
   loaderScript.src = chrome.runtime.getURL("pageGeminiLoader.js");
   document.documentElement.appendChild(loaderScript);
+  */
 
   const hybridScript = await import(chrome.runtime.getURL('pageHybrid.js'));
   /*
@@ -29,8 +31,8 @@
 
     const helperFunction = await import(chrome.runtime.getURL('utils/helpers.js'));
 
-    const searchModule = await import(chrome.runtime.getURL('searchModule.js'));
-    searchModule.init()
+    //const searchModule = await import(chrome.runtime.getURL('searchModule.js'));
+    //searchModule.init()
 
 
    //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
@@ -256,7 +258,7 @@
   const explainBtn = document.createElement("button")
   explainBtn.className = "tsExplainBtn"
   explainBtn.textContent = "🔍 Help me Explain"
-  explainBtn.title = "Get a detailed explanation of the selected text."
+  explainBtn.title = "Get detailed explanation of the selected text."
   fPBContainer.appendChild(explainBtn)
 
   // --- Sidebar host + shadow DOM ---
@@ -785,6 +787,7 @@ const apiKeySaveBtn = qs('ts-set-key');
    * @param {Boolean} enable - true = show, false = hide
    */
   function toggleSpinner(range, enable) {
+    return
     if (enable) {
       if (!range) return;
 
@@ -833,14 +836,13 @@ const apiKeySaveBtn = qs('ts-set-key');
     isMouseDownOnButton = false;
   });
 
-  explainBtn.addEventListener("click", (e)=>{
+  explainBtn.addEventListener("click", async (e)=>{
     e.stopPropagation();
     expandSelectionToSentence()
     const selection = window.getSelection();
-    chatPanelModule.openChatPanel(selection, pageSummary)
-    if (!chatPanelModule.isInputHandlerSet){ // we need only one input handler for this.
-      chatPanelModule.attachInputHandler(explainTextInputHelper)
-    }
+    await chatPanelModule.openChatPanel(selection)
+    if(!chatPanelModule.isInputHandlerSet)
+      await chatPanelModule.registerInputHandler(explainTextInputHelper)
     hideFloatingPreviewButton();
     
   })
@@ -883,7 +885,7 @@ const apiKeySaveBtn = qs('ts-set-key');
     });
   });
 
-
+  /*
   //Getting page summarization for context
   async function summarizeWithAI(text) {
     console.log("Summarizing new content...");
@@ -950,6 +952,7 @@ const apiKeySaveBtn = qs('ts-set-key');
       chatPanelModule.setDefaultContext(pageSummary);
     }
   });
+  */
 
 
   document.addEventListener('mousedown', (e) => {
@@ -1280,19 +1283,27 @@ const apiKeySaveBtn = qs('ts-set-key');
 
   // Load the saved state when the popup/page opens
   // This ensures the checkbox reflects the user's last choice
-  window.addEventListener('load', () => {
+  window.addEventListener('load', async () => {
+    console.log("window loaded")
       chrome.storage.local.get('rewriteWithFormat', (data) => {
           if (data.rewriteWithFormat !== undefined) {
               preserveFormattingCheckbox.checked = data.rewriteWithFormat;
           }
       });
-      chrome.storage.local.get("useCloudModel", (data)=>{
-        if (data.useCloudModel !== undefined) {
-          geminiCloudModelToggle.checked = data.useCloudModel;
-          updateGeneralControlState(data.useCloudModel)
-        }
-      });
+      
   });
+
+  // ================ Storage Initialization ================== 
+   chrome.storage.local.get("tsLastMode", (data) => {
+      console.log("last mode: ", data)
+      if(!data.tsLastMode) chrome.storage.local.set({ tsLastMode:"Simplify"})
+    })
+    chrome.storage.local.get("useCloudModel", (data)=>{
+      if (data.useCloudModel !== undefined) {
+        geminiCloudModelToggle.checked = data.useCloudModel;
+        updateGeneralControlState(data.useCloudModel)
+      }
+    });
 
   // --- Common Preview Function ---
   async function performPreview(rewriteMapKey) {
@@ -1544,13 +1555,14 @@ const apiKeySaveBtn = qs('ts-set-key');
     }
 
     if (event.data.type === "TS_GEMINI_ERROR") {
-      outputBox.textContent = "⚠️ Error: " + (event.data.error || "Something went wrong");
-      lastAIResponse = "";
-      setLoading(false);
-      toggleSpinner(null, false)
+      console.log("listener got some error")
       updateOutputDisplayUI("Something went wrong. Try again", false)
 
-      
+      outputBox.textContent = "⚠️ Error: " + (event.data.error || "Something went wrong");
+      lastAIResponse = "";
+      //setLoading(false);
+      //toggleSpinner(null, false)
+
       if (isPreviewMode) {
         isPreviewMode = false;
         previewRange = null;
@@ -1934,6 +1946,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
   // --- Spinner / disable buttons ---
   function setLoading(isLoading) {
+    return
     if (isLoading) {
       spinner.style.display = "block";
       previewBtn.disabled = true;
@@ -1965,8 +1978,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     }
   }
 
-  // --- Listen for popup commands ---
-  chrome.runtime.onMessage.addListener((msg) => {
+  // --- Listen for background message ---
+  chrome.runtime.onMessage.addListener(async (msg) => {
     if (msg.action === "toggleSidebar") {
       if (msg.visible) {
         sidebar.style.display = "block";
@@ -1976,6 +1989,12 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
         floatingIcon.style.display = "flex";
       }
       chrome.storage.local.set({ sidebarVisible: msg.visible });
+    }
+    if (msg.action == "helpMeExplain"){
+      console.log("got helpmeexplain message from backgroun")
+      await chatPanelModule.openChatPanel(null)
+      if(!chatPanelModule.isInputHandlerSet)
+        await chatPanelModule.registerInputHandler(explainTextInputHelper)
     }
   });
 
@@ -2148,6 +2167,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   let originalText = ""
   let refineMicroCard = null
   let microcardRewrittenEl = document.createElement("div")
+  let startRewrite  = () => {}
 
   async function createModePresetCard(originalTextOrSelection, rewriteMapKey) {
     originalText = "This is a sample text to refine.";
@@ -2172,6 +2192,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     // === Create the Shadow DOM host and attach shadow root ===
     const host = document.createElement("div");
     host.className = "tsMicrocard-host";
+    host.style.display = "absolute"
     document.body.appendChild(host);
 
     const shadow = host.attachShadow({ mode: "open" });
@@ -2193,9 +2214,6 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     header.className = "tsMicrocardHeader";
     setOwnText(header, "✨Gideon – Rewrite");
     microcard.appendChild(header);
-
-    // === Card positioning ===
-    helperFunction.positionPanel(originalTextOrSelection, host);
 
     // === Hover tracking ===
     let isMouseOverCard = false;
@@ -2264,6 +2282,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     }
 
     isShowingPanels = true;
+    // === Card positioning ===
+    helperFunction.positionPanel(originalTextOrSelection, host, {width:microcard.offsetWidth, height:microcard.offsetHeight});
+
     return microcard; // Return the actual inner card for later DOM work
   }
   function getActiveMicrocard() {
@@ -2319,6 +2340,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     //blurBackground.id = "tsSpinnerContainer"
     //microcardRewrittenEl.appendChild(blurBackground);
     //showSpinner(microcardRewrittenEl, "")
+    startRewrite()
+    
+    /*
     microcardRewrittenEl.text = ""
     
 
@@ -2326,7 +2350,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     
     const node = card.querySelector(".tsOriginalText")
     showSpinner(node, mode)
-
+    
     const allChips = card.querySelectorAll(".tsChip");
     allChips.forEach((c) => {
       c.classList.remove("tsActive")
@@ -2338,6 +2362,13 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     replaceBtn.disabled=true
 
     card.querySelector(".tsTextActions").style.display = "none"
+    */
+   const allChips = card.querySelectorAll(".tsChip");
+    allChips.forEach((c) => {
+      c.classList.remove("tsActive")
+      c.disabled = true
+    });
+    chip.classList.add("tsActive");
 
     // #microcard testing
     /*
@@ -2349,6 +2380,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     return
     */
   }
+
 
   // === Show Spinner (Skip Mode Selection Path) === //
   function showSpinner(node, mode) {
@@ -2471,8 +2503,11 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     caption.className = "tsCaption";
     const isCloudAI =  await chrome.storage.local.get("useCloudModel");
     caption.textContent = mode
-      ? `${mode} version — ${isCloudAI? "Cloud AI" : "Local AI"}`
-      : `AI generated -${isCloudAI? "Cloud AI" : "Local AI"}`;
+    if(isCloudAI.useCloudModel){
+      caption.textContent = `${mode} version - Cloud AI`
+    } else{
+      caption.textContent = `${mode} version - Local AI`
+    }
 
     const actionBar = document.createElement("div");
     actionBar.className = "tsActionBar";
@@ -2499,6 +2534,20 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       self.style.display = "none"
     });
     btnChange.textContent = "Adjust Tone/Style";
+    
+    startRewrite = () => {
+      //microcardRewrittenEl.textContent = ""
+    
+      performPreview(rewriteMapKey)
+      
+      const node = card.querySelector(".tsOriginalText")
+      showSpinner(node, mode)
+
+      const replaceBtn = card.querySelector("#tsReplaceButton")
+      replaceBtn.disabled=true
+
+      //microcard.querySelector(".tsTextActions").style.display = "none"
+    }
 
     const modeSelectionCard = await buildModeSelectionCard(refineMicroCard, rewriteMapKey)
     actionBar.append(modeSelectionCard, btnReplace);
@@ -2577,7 +2626,6 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       border: 1px solid #D0D0D0;
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-      padding: 16px;
       width: 600px;
       max-width: calc(100vw - 32px); /* prevent overflowing horizontally */
       z-index: 1000;
@@ -2604,7 +2652,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     @media (prefers-color-scheme: dark) {
       .tsMicrocard {
-        background: #1E1E1E;
+        background: #313131ff;
         color: #EAEAEA;
         border: 1px solid #3A3A3A;
       }
@@ -2612,6 +2660,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* ==== Header ==== */
     .tsMicrocardHeader { 
+        border-radius: 12px;
         display: "block";
         padding: 12px 14px; 
         font-weight: 700; 
@@ -2702,6 +2751,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       font-style: italic;
       color: #555;
       opacity: 0.85;
+      height: 50px;
       max-height: 6.5em;
       overflow: hidden;
       position: relative;
@@ -2778,7 +2828,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* Action buttons container */
     .tsTextActions {
-      display: none;
+      display: flex;
       gap: 6px;
       opacity: 0;
       pointer-events: none;
@@ -2877,6 +2927,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* === CAPTION === */
     .tsCaption {
+      padding: 14px;
       font-size: 12px;
       color: #6C757D;
       text-align: right;
@@ -2928,8 +2979,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     /* === SPINNER === */
     #tsSpinnerContainer {
       position: absolute;
-      //background: rgba(255, 255, 255, 0.8);
-      backdrop-filter: blur(1px);
+      /*background: rgba(255, 255, 255, 0.8);*/
+      backdrop-filter: blur(1.5px);
       width: 100%;
       height: 100%;
       top: 50%;
@@ -2965,6 +3016,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* === FLEX CONTAINER FOR ORIGINAL + REWRITTEN === */
     .tsTextFlexContainer {
+      padding:10px;
       display: flex;
       align-items: flex-start;
       width: 100%;
@@ -3023,6 +3075,39 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       cursor: not-allowed;
       transform: none !important;
     }
+    /* Retry button - small pill that follows the primary theme */
+  .tsRetryBtn {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #fff;
+    color: #6C63FF;
+    border: 1px solid rgba(108,99,255,0.12);
+    padding: 6px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-left: 8px;
+    box-shadow: 0 6px 16px rgba(108,99,255,0.06);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  }
+
+  .tsRetryBtn:hover { 
+    background: #e4dedeff;
+    transform: translateY(-1px);
+    /*box-shadow: 0 10px 20px rgba(108,99,255,0.12);*/
+  }
+  .tsRetryBtn:active { transform: scale(0.98); }
+  .tsRetryBtn:hover:disabled {cursor:wait}
+  .tsRetryBtn:hover:disabled {
+      background: #AAA !important;
+      transform: none !important;
+    }
+
+
+
   `;
 
   //createModePresetCard()
@@ -3044,46 +3129,85 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     // Try to find the microcard in DOM; fall back to the last created reference refineMicroCard
     const microcard = getActiveMicrocard()
     // Debug log to help trace timing issues
-    //console.log("Microcard: ", microcard, "(attempt:", attempt, ")")
+    console.log("Microcard: ", microcard, "(attempt:", attempt, ")")
 
     // If microcard still isn't ready, retry a few times with a short delay
     if(!microcard){
-      if (attempt < 6) {
+
+      if (attempt < 20) {
+        console.log("retrying to get microcard")
         setTimeout(() => updateOutputDisplayUI(rewrittenText, success, attempt + 1), 80);
+        return
       } else {
         console.warn("updateOutputDisplayUI: microcard not available after retries");
       }
       return
     }
 
-    const el = microcard.querySelector(".tsRewrittenText")
-    if (el) setOwnText(el, rewrittenText)
-    
-    const orEl = microcard.querySelector(".tsOriginalText")
-    if (orEl) orEl.querySelector("#tsSpinnerContainer")?.remove()
+    let outPutContainer = microcard.querySelector(".tsOutputContainer")
+
+    let el = outPutContainer.querySelector(".tsRewrittenText")
+    if(!el) console.log("rewritten el: ", el)
+
+    let orEl =  outPutContainer.querySelector(".tsOriginalText")
+    if(!orEl) console.log("original el: ", orEl)
+
     //if(spinner) spinner.style.display = "none"
 
     if (success){
+      if (el)setOwnText(el, rewrittenText)
+      if(!el) console.log("success but el is: ", el)
+      if (orEl) orEl.querySelector("#tsSpinnerContainer")?.remove()
+
       const actionBar = microcard.querySelector(".tsActionBar")
       actionBar.style.display = "flex"
-
-      const allChips = microcard.querySelectorAll(".tsChip");
-      allChips.forEach((c) => {
-        if(c.classList.contains("tsActive")){
-          const modeCaption = microcard.querySelector(".tsCaption")
-          modeCaption.textContent = c.textContent
-          ? `${c.textContent} version — Local AI`
-          : "AI generated (local).";
-        }
-        c.disabled = false
-      });
 
       const replaceBtn = microcard.querySelector("#tsReplaceButton")
       replaceBtn.disabled=false
       replaceBtn.style.display = "flex"
 
-      microcard.querySelector(".tsTextActions").style.display = "flex"
+      microcard.querySelector(".tsRetryBtn")?.remove()
+
+      //microcard.querySelector(".tsTextActions").style.display = "flex"
+
+    } else{
+      setTimeout(() => {
+        if (el) {
+          console.log(el, orEl)
+          el.innerHTML = ""
+          setOwnText(el, rewrittenText)
+          addRetryAction(el, startRewrite)
+        }
+
+        if (orEl) orEl.querySelector("#tsSpinnerContainer")?.remove()
+        
+      }, 500);
+      
     }
+    const allChips = microcard.querySelectorAll(".tsChip");
+    allChips.forEach((c) => {
+      if(c.classList.contains("tsActive")){
+        const modeCaption = microcard.querySelector(".tsCaption")
+        modeCaption.textContent = c.textContent
+        ? `${c.textContent} version — Local AI`
+        : "AI generated (local).";
+      }
+      c.disabled = false
+    });
+  }
+  function addRetryAction(containerEl, callback=nulll) {
+    const existing = getActiveMicrocard().querySelector('.tsRetryBtn');
+    if (existing) return;
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'tsRetryBtn';
+    retryBtn.textContent = 'Retry';
+    retryBtn.style.marginTop = '8px';
+    retryBtn.onclick = (ev) => {
+      callback()
+      retryBtn.disabled=true
+      //retryBtn.remove()
+    };
+    containerEl.appendChild(retryBtn);
   }
 
   function setOwnText(el, text) {
@@ -3093,6 +3217,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     } else {
       el.insertBefore(document.createTextNode(text), el.firstChild);
     }
+    //console.log(`set text of ${el} with text:${text}`)
   }
 
 /* ChatPanel input handler */

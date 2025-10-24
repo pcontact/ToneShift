@@ -43,3 +43,7 @@ next-env.d.ts
 rollup.config.js
 package-lock.json
 package.json
+
+/dev
+/models
+/scripts
