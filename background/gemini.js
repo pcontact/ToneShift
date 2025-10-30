@@ -1,10 +1,14 @@
 // background/gemini.js
+// Cloud-only version
+// Handles communication with the Google Generative AI (Gemini) cloud model.
 
 import { GoogleGenerativeAI } from "../libs/vendor/generative-ai.bundle.js";
 
 let model = null;
-let isLocalMode = true;
 
+/** ---------------------------
+ * Cloud model initialization
+ * ----------------------------*/
 async function initCloudModel(apiKey) {
   if (!apiKey) {
     const { apiKey: storedKey } = await chrome.storage.local.get("apiKey");
@@ -12,152 +16,221 @@ async function initCloudModel(apiKey) {
   }
   if (!apiKey) {
     console.warn("No API key found for Google Generative AI.");
+    model = null;
     return null;
   }
   const genAI = new GoogleGenerativeAI(apiKey);
   model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 }
 
+/** ---------------------------
+ * Initialization
+ * ----------------------------*/
 async function init() {
-  console.log("Initializing ToneShift AI logic...");
-  const data = await chrome.storage.local.get("useCloudModel");
-  if (!data.hasOwnProperty("useCloudModel")) {
-    await chrome.storage.local.set({ useCloudModel: false });
-    return;
-  }
-  isLocalMode = !data.useCloudModel;
-  if (data.useCloudModel) await initCloudModel();
+  console.log("Initializing Gemini Cloud AI logic (background)...");
+  await initCloudModel().catch((e) => {
+    console.error("initCloudModel failed:", e);
+  });
 }
 init();
 
+/** ---------------------------
+ * Message handling
+ * ----------------------------*/
 
-
-chrome.action.onClicked.addListener(tab => {
-  chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-});
-
-// Unified handler for Gemini-related messages
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg.action) return;
+  if (!msg?.action) return;
 
   switch (msg.action) {
     case "openPopup":
+      console.log(msg)
+      if(msg.callbackForModelChange) modelPreferenceChangeCallbacks.push(callbackForModelChange)
       if (chrome.action.openPopup) {
         chrome.action.openPopup().catch(() => chrome.runtime.openOptionsPage());
+        
       } else {
         chrome.runtime.openOptionsPage();
       }
       return;
 
-    case "updateGeminiModelPreference":
-      isLocalMode = !msg.useCloudModel;
-      if (!isLocalMode) initCloudModel().catch(console.error);
-      return;
-
     case "updateGeminiApiKey":
-      if (!isLocalMode) initCloudModel(msg.apiKey).catch(console.error);
+      chrome.storage.local.set({ apiKey: msg.apiKey }).catch(() => {});
+      initCloudModel(msg.apiKey).catch(console.error);
       return;
 
     case "askGemini":
       handleAskGemini(msg, sendResponse);
-      return true;
+      return true;  
+
+    case "updateGeminiModelPreference":
+      //chrome.tab.sendMessage({action: "updateGeminiModelPreference", msg})
+
+    default:
+      return;
   }
 });
 
+/** ---------------------------
+ * askGemini handler (cloud)
+ * ----------------------------*/
 async function handleAskGemini(msg, sendResponse) {
   try {
-    const { text, history } = msg;
-    const system = history.find(m => m.role === "system");
-    const nonSystemHistory = history.filter(m => m.role !== "system");
+    const { text } = msg;
+    let history = msg.history
+
+    if (!model) {
+      await initCloudModel();
+      if (!model) {
+        sendResponse({
+          error: "no_cloud_model",
+          message: "Cloud model not initialized."
+        });
+        return;
+      }
+    }
+    history = normalizeHistory(history)
+
+    const system = history?.find(m => m.role === "system");
+    const nonSystemHistory = (history || []).filter(m => m.role !== "system");
 
     const systemInstruction = system
-      ? { role: isLocalMode ? "system" : "user", parts: [{ text: system.parts?.[0]?.text || "" }] }
+      ? { role: "user", parts: [{ text: system.parts?.[0]?.text || "" }] }
       : undefined;
 
-    if (isLocalMode) {
-      const session = await ai.languageModel.create();
-      const result = await session.prompt(text, { systemInstruction, history: nonSystemHistory });
-      sendResponse({ reply: result });
-    } else {
-      const chat = model.startChat({ systemInstruction, history: nonSystemHistory });
-      const response = await chat.sendMessage(text);
-      sendResponse({ reply: response.response.text() });
-    }
+    const chat = model.startChat({ systemInstruction, history: nonSystemHistory });
+    const response = await chat.sendMessage(text);
+
+    const textResp =
+      response?.response?.text
+        ? await response.response.text()
+        : (response?.response || response?.text || String(response));
+        
+
+    sendResponse({ reply: textResp,
+      chatHistory:[
+        ...history,
+        { role: "user", parts: [{ text: text }] },
+        { role: 'model', parts: [{ text: textResp }] }
+      ]
+    });
   } catch (err) {
-    console.error("AI logic error:", err);
-    sendResponse({ error: err.message });
+    console.error("handleAskGemini error:", err);
+    sendResponse({ error: err.message || String(err) });
   }
 }
 
-// Streaming support
-chrome.runtime.onConnect.addListener(port => {
-  if (port.name !== "gemini-stream") return;
+/** ---------------------------
+ * Streaming port handler
+ * ----------------------------*/
+chrome.runtime.onConnect.addListener((clientPort) => {
+  if (!clientPort || clientPort.name !== "gemini-stream") return;
+
   const controllers = new Map();
 
-  port.onMessage.addListener(async msg => {
-    if (!msg) return;
+  clientPort.onDisconnect.addListener(() => {
+    for (const ctrl of controllers.values()) {
+      try { ctrl.abort(); } catch (_) {}
+    }
+    controllers.clear();
+  });
+
+  clientPort.onMessage.addListener(async (msg) => {
+    if (!msg || !msg.action) return;
 
     if (msg.action === "start") {
-      const { text, history, id } = msg;
-      try {
-        const system = history.find(h => h.role === "system");
-        const nonSystemHistory = history.filter(h => h.role !== "system");
+      const { conversationId, text } = msg;
+      let history = msg.history;
 
+      try {
+        if (!model) await initCloudModel();
+        if (!model) throw new Error("Cloud model not initialized");
+
+        history = normalizeHistory(history);
+        const system = history?.find(h => h.role === "system");
+        const nonSystemHistory = (history || []).filter(h => h.role !== "system");
         const systemInstruction = system
-          ? { role: isLocalMode ? "system" : "user", parts: [{ text: system.parts?.[0]?.text || "" }] }
+          ? { role: "user", parts: [{ text: system.parts?.[0]?.text || "" }] }
           : undefined;
 
-        if (isLocalMode) {
-          const session = await ai.languageModel.create();
-          const stream = session.promptStreaming(String(text), { systemInstruction, history: nonSystemHistory });
-          let prev = "";
-          for await (const chunk of stream) {
-            const current = chunk.text();
-            const delta = current.slice(prev.length);
-            if (delta) port.postMessage({ id, chunk: delta, done: false });
-            prev = current;
-          }
-          const finalText = await stream.response.text();
-          port.postMessage({ id, chunk: "", done: true, reply: finalText });
-        } else {
-          const chat = model.startChat({ systemInstruction, history: nonSystemHistory });
-          const controller = new AbortController();
-          if (id) controllers.set(id, controller);
-          const streamResult = await chat.sendMessageStream(String(text), { signal: controller.signal });
+        const chat = model.startChat({ systemInstruction, history: nonSystemHistory });
 
-          let prev = "";
-          for await (const partial of streamResult.stream) {
-            const current = partial.text();
-            const delta = current.slice(prev.length);
-            if (delta) port.postMessage({ id, chunk: delta, done: false });
-            prev = current;
-          }
+        const controller = new AbortController();
+        if (conversationId) controllers.set(conversationId, controller);
 
-          const finalResp = await streamResult.response;
-          const finalText = await finalResp.text();
-          port.postMessage({ id, chunk: "", done: true, reply: finalText });
+        const streamResult = await chat.sendMessageStream(String(text), {
+          signal: controller.signal
+        });
+
+        // --- Stream handling with batching ---
+        let buffer = "";
+        let flushTimer = null;
+        const flush = () => {
+          if (!buffer) return;
+          try {
+            clientPort.postMessage({ conversationId, chunk: buffer, done: false });
+          } catch (_) {}
+          buffer = "";
+          flushTimer = null;
+        };
+
+        for await (const partial of streamResult.stream) {
+          const chunk = partial?.text ? partial.text() : String(partial);
+          buffer += chunk;
+
+          // batch messages every ~40ms to avoid port overload
+          if (!flushTimer) {
+            flushTimer = setTimeout(flush, 40);
+          }
         }
+
+        // flush any leftovers
+        flush();
+
+        // Get the final full response
+        const finalResp = await streamResult.response;
+        const finalText = finalResp?.text ? await finalResp.text() : String(finalResp || "");
+
+        // Send final message (done: true)
+        clientPort.postMessage({
+          conversationId,
+          done: true,
+          reply: finalText,
+          chatHistory: [
+            ...history,
+            { role: "user", parts: [{ text }] },
+            { role: "model", parts: [{ text: finalText }] }
+          ]
+        });
       } catch (err) {
-        console.error("AI streaming error:", err);
-        port.postMessage({ id, error: err.message || String(err), done: true });
+        console.error("Cloud streaming error:", err);
+        clientPort.postMessage({
+          conversationId,
+          error: err.message || String(err),
+          done: true
+        });
       } finally {
-        if (id) controllers.delete(id);
-        try { port.disconnect(); } catch (_) {}
+        if (conversationId) controllers.delete(conversationId);
       }
-    } else if (msg.action === "cancel") {
-      const { id } = msg;
-      if (id) {
-        const ctrl = controllers.get(id);
-        if (ctrl) {
-          try { ctrl.abort(); } catch (_) {}
-          controllers.delete(id);
-        }
-      } else {
+      return;
+    }
+
+
+    if (msg.action === "cancel") {
+      const { conversationId } = msg;
+      if (!conversationId) {
         for (const ctrl of controllers.values()) {
           try { ctrl.abort(); } catch (_) {}
         }
         controllers.clear();
+        return;
       }
+
+      const ctrl = controllers.get(conversationId);
+      if (ctrl) {
+        try { ctrl.abort(); } catch (_) {}
+        controllers.delete(conversationId);
+      }
+      return;
     }
   });
 });
@@ -167,9 +240,9 @@ function createMenu() {
   // clear old items to avoid duplicates when reloading
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: "helpMeExplain",
-      title: "Help me Explain",
-      contexts: ["page", "selection", "link", "image"] // explicit and safe
+      id: "refineText",
+      title: "Refine this text",
+      contexts: ["page", "selection"] // explicit and safe
     }, () => {
       if (chrome.runtime.lastError) {
         console.error("contextMenus.create error:", chrome.runtime.lastError);
@@ -182,25 +255,23 @@ function createMenu() {
 
 // create on install and also when worker starts (worker may restart)
 chrome.runtime.onInstalled.addListener(createMenu);
-createMenu(); // call at top-level to ensure it exists after reload
 
 // click handler
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  console.log("context menu clicked", info, tab);
-  if (info.menuItemId === "helpMeExplain") {
+  if (info.menuItemId === "refineText") {
     // guard: tab may be undefined on certain pages (e.g. chrome://)
     if (!tab || !tab.id) {
       console.warn("No tab available, not sending message.");
       return;
     }
-    console.log(info)
+    //console.log(info)
     // optionally skip non-http pages:
     if (!tab.url || !/^https?:\/\//.test(tab.url)) {
       console.warn("Not a regular page (no http/https).", tab.url);
       //return;
     }
 
-    chrome.tabs.sendMessage(tab.id, { action: "helpMeExplain", info }, (response) => {
+    chrome.tabs.sendMessage(tab.id, { action: "refineText", info }, (response) => {
       if (chrome.runtime.lastError) {
         console.error("sendMessage error:", chrome.runtime.lastError.message);
       } else {
@@ -210,6 +281,19 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
+function normalizeHistory(history = []) {
+  return (history || []).map(normalizeHistoryItem);
+}
+
+function normalizeHistoryItem(item) {
+  if (!item) return { role: "user", content: "" };
+  let role = item.role ?? "user";
+  if (role === "assistant") role = "model";
+  const content = typeof item.content === "string"
+    ? item.content
+    : item.content ?? item.parts?.[0]?.text ?? "";
+  return { role, parts:[{ text: content }] };
+}
 
 
 

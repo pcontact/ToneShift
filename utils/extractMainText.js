@@ -22,8 +22,15 @@ export function extractMainTextFromDocument(inputDocument) {
 
   // --- Helpers ---
   function isBoilerplate(node) {
-    return (/aside|nav|footer|header|sidebar|ads|advertisement/i.test(node.className || "") || node.className.startsWith("ts"));
+    const cls = node.className || "";
+    return (
+      /aside|nav|footer|header|sidebar|ads|advertisement/i.test(cls) ||
+      cls.startsWith("ts") ||                   // existing rule
+      cls.includes("tsMicrocard") ||            // explicit overlay check
+      node.matches?.(".tsMicrocard-host, .tsMicrocard, [shadowrootmode]") // handles shadow roots too
+    );
   }
+
 
   function scoreNode(node) {
     const textLength = node.textContent.trim().length;
@@ -104,9 +111,10 @@ export function extractMainTextFromDocument(inputDocument) {
   // --- Main extraction pipeline ---
   try {
     const bodyClone = clonedDoc.body.cloneNode(true);
-    ["script", "style", "noscript", "iframe", ".ads", ".advertisement"].forEach(sel => {
+    ["script", "style", "noscript", "iframe", ".ads", ".advertisement", ".tsMicrocard-host"].forEach(sel => {
       bodyClone.querySelectorAll(sel).forEach(node => node.remove());
     });
+
 
     const mainContainer = detectMainContainer(bodyClone);
     if (!mainContainer) return null;
@@ -122,9 +130,10 @@ export function extractMainTextFromDocument(inputDocument) {
 
     const newHash = hashString(result);
     if (newHash !== lastTextHash) {
-      lastTextHash = newHash;
-      return result; // meaningful new content
+      //lastTextHash = newHash;
+      //return result; // meaningful new content
     }
+    return result; // meaningful new content
 
     return null; // no significant change
   } catch (err) {

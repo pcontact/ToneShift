@@ -215,3 +215,183 @@ export function positionPanelAtPoint(panel, point) {
   panel.style.top = `${Math.round(top)}px`;
   if (!panel.style.zIndex) panel.style.zIndex = '9999';
 }
+
+/**
+ * Show a prompt in the given parentNode to download the built-in model for Chrome’s Prompt API.
+ * Once downloaded & ready, remove the UI and call callback(callbackArgs).
+ *
+ * @param {HTMLElement} parentNode – where to append the UI.
+ * @param {Function} callback – function to call once model is ready.
+ */
+export async function showModelDownloadPrompt(parentNode, callback) {
+  // create UI elements
+  const container = document.createElement('div');
+  container.style = `
+    padding: 1em;
+    /*border: 1px solid #888;*/
+    /*background: #f9f9f9;*/
+    max-width: 400px;
+    font-family: sans-serif;
+  `;
+  
+  const message = document.createElement('p');
+  message.textContent = "Needs to download Chrome AI model.";
+  container.appendChild(message);
+  
+  const button = document.createElement('button');
+  button.style = `
+      cursor:pointer;
+  `
+  button.textContent = "Download model";
+  container.appendChild(button);
+  
+  const statusLabel = document.createElement('p');
+  statusLabel.style = "margin-top:0.5em; font-style:italic;";
+  //container.appendChild(statusLabel);
+  
+  parentNode.appendChild(container);
+  
+  // click handler to start download
+  button.addEventListener('click', async () => {
+    //button.disabled = true;
+    //statusLabel.textContent = "Downloading built-in AI model. Please wait…";
+    //setOwnText(message, "Downloading built-in AI model. Please wait…")
+    
+    try {
+      // check availability
+      const LM = getLanguageModelNamespace()
+      const availability = await LM.availability()
+      // According to docs: if availability is 'downloadable' or 'downloading', you need to initiate create() to download. :contentReference[oaicite:2]{index=2}
+      if (availability === 'downloadable' || availability === 'downloading') {
+        // initiate download & monitor
+        const session = await LM.create({
+          monitor(m) {
+            m.addEventListener('downloadprogress', (e) => {
+              const pct = Math.round(e.loaded * 100);
+              //statusLabel.textContent = `Downloading… ${pct}%`;
+              //setOwnText(message, `Downloading… ${pct}%`)
+              setOwnText(message, `Downloading built-in AI model. Please wait… ${pct}%`)
+              
+            });
+          }
+        });
+        // after create resolves, model is ready
+        //statusLabel.textContent = "Getting ready…";
+        setOwnText(message, "Getting ready…")
+    
+        // small delay so user sees “Getting ready” state (optional)
+        await new Promise(resolve => setTimeout(resolve, 500));
+        // clean up UI
+        parentNode.removeChild(container);
+        // invoke callback
+        callback();
+      } else if (availability === 'readily') {
+        // already available
+        parentNode.removeChild(container);
+        callback();
+      } else {
+        // unavailable
+        //statusLabel.textContent = "Model unavailable on this device/browser.";
+        setOwnText(message, "Model unavailable on this device/browser.")
+        console.warn("LanguageModel availability:", availability);
+      }
+    } catch (err) {
+      console.error("Error downloading or creating model session:", err);
+      //statusLabel.textContent = "Error downloading model.";
+      setOwnText(message, "Error downloading model.")
+    }
+  });
+}
+
+export function getLanguageModelNamespace() {
+  const LM =
+    (typeof LanguageModel !== "undefined" && LanguageModel) ||
+    globalThis?.ai?.languageModel ||
+    globalThis?.chrome?.ai?.languageModel ||
+    globalThis?.chrome?.aiOriginTrial?.languageModel ||
+    null;
+
+  return (LM && typeof LM.create === "function" && typeof LM.availability === "function") ? LM : null;
+}
+
+function setOwnText(el, text) {
+    let textNode = [...el.childNodes].find(n => n.nodeType === Node.TEXT_NODE);
+    if (textNode) {
+        textNode.nodeValue = text;
+    } else {
+        el.insertBefore(document.createTextNode(text), el.firstChild);
+    }
+}
+
+export function showUseCloudeModelOption(parentNode, callback){
+  // create UI elements
+  const container = document.createElement('div');
+  container.style = `
+    padding-top:1px;
+    /*border: 1px solid #888;*/
+    /*background: #f9f9f9;*/
+    max-width: 400px;
+    font-family: sans-serif;
+  `;
+  
+  const message = document.createElement('p');
+  message.textContent = "Needs to download Chrome AI model.";
+  //container.appendChild(message);
+  
+  const button = document.createElement('button');
+  button.className = "tsRetryBtn "
+  button.textContent = "Try Cloud model";
+  container.appendChild(button);
+  
+  const statusLabel = document.createElement('p');
+  statusLabel.style = "margin-top:0.5em; font-style:italic;";
+  //container.appendChild(statusLabel);
+  
+  parentNode.appendChild(container);
+
+  function openPopup(){
+    chrome.runtime.sendMessage({ action: "openPopup"});
+    setTimeout(() => {
+      button.removeEventListener("click", openPopup)
+      button.textContent = "Retry"
+      setOwnText(parentNode, "Something went wrong. Try again.")
+      if(callback)button.addEventListener("click", callback)
+    }, 1500);
+       
+  }
+  button.addEventListener('click', openPopup)
+}
+
+export function simpleMarkdownToHTML(markdown) {
+  // Escape HTML first
+  if(!markdown) return
+  let html = markdown
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Headers
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+  // Bold **text**
+  html = html.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
+
+  // Italic *text*
+  // Handles spaces, punctuation, and line breaks more reliably
+  html = html.replace(/(\s|^)\*(?!\s)([^*]+?)\*(\s|$)/gim, '$1<em>$2</em>$3');
+
+  // Inline code `code`
+  html = html.replace(/`([^`]+)`/gim, '<code>$1</code>');
+
+  // Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  // Paragraphs and line breaks
+  html = html.replace(/\n{2,}/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>');
+  html = '<p>' + html + '</p>';
+
+  return html.trim();
+}

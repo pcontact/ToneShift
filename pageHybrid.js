@@ -1,134 +1,18 @@
-// --------------------
-// ToneShift Hybrid AI handler (Chrome Nano + Gemini fallback)
-// Now modular ES module
+import { createGeminiRouter} from "./utils/universal_gemini_router.js"
 
-// --- Module-scoped state ---
-let cloudModel = null;
-let _rewriteWithFormat = false; // indicate if we will use buildPromptAlign in the pipeline
+const DEBUG_MODE = true
 
-// --- API key bridge ---
-export function getApiKey() {
-  return new Promise((resolve) => {
-    window.postMessage({ type: "TS_GET_API_KEY" }, "*");
-
-    function handler(event) {
-      if (event.source !== window) return;
-      if (event.data.type === "TS_API_KEY") {
-        window.removeEventListener("message", handler);
-        resolve(event.data.apiKey);
-      }
-    }
-
-    window.addEventListener("message", handler);
-  });
-}
-
-// --- Init Gemini Cloud ---
-async function getCloudModel() {
-  if (!cloudModel) {
-    const key = await getApiKey();
-    if (!key) throw new Error("No Gemini API key set. Please add it in popup.");
-    //console.log(":::::::",window.GoogleGenerativeAI)
-    const genAI = new window.GoogleGenerativeAI(key);
-    cloudModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    console.log("✅ Gemini cloud model initialized with user key");
-  }
-  return cloudModel;
-}
-
-// --- Chrome Nano ---
-async function tryChromeAI(promptText) {
-  if (!(window.ai && window.ai.languageModel)) return null;
-
-  try {
-    console.log("Using Chrome built-in AI (Nano)...");
-    const session = await window.ai.languageModel.create({
-      temperature: 0.7,
-      topK: 40,
-    });
-    const response = await session.prompt(promptText);
-    return response;
-  } catch (err) {
-    console.warn("Chrome AI failed:", err);
-    return null;
-  }
-}
-
-// --- Gemini Cloud ---
-async function tryGeminiCloud(promptText) {
-  try {
-    console.log("☁️ Using Gemini cloud API...");
-    const model = await getCloudModel();
-    const rawOutput = await model.generateContent(promptText);
-    const output = rawOutput?.response?.text() || "⚠️ No response from Gemini";
-    return { success: true, text: output };
-  } catch (err) {
-    let message = "⚠️ Error: " + err.message;
-    if (err.message.includes("No Gemini API key")) {
-      message =
-        "⚠️ No API key found. Please open the ToneShift popup and add your Gemini API key.";
-    }
-    console.error("Gemini error:", err);
-    return { success: false, error: message };
-  }
-}
-
-// --- Summarizer function to export ---
-async function summarizeText(text) {
-  const prompt = buildPromptSummary(text)
-  let output = await tryChromeAI(prompt)
-
- // fallback Gemini if needed
-  if (!output) {
-    let result = await tryGeminiCloud(prompt);
-    if (result.success) {
-      return result.text
-    }
-  }
-  return output.text
-}
-
-
-// -- Concise Prompt builder for summary (no added ideas) --
-export function buildPromptSummary(textToSummarize) {
-  return `
-    "Please summarize the following text clearly and concisely. 
-    Highlight the main ideas, key points, and any important details. 
-    Keep the summary coherent and easy to understand. If possible, maintain the tone of the original text.
-    Here is the text:
-    ${textToSummarize}
-  `;
-}
-
+const geminiRouter = createGeminiRouter()
 
 // --- Prompt builder for rewrite ---
-export function buildPromptContextAwareRewrite(
-  textWithoutPlaceholders,
-  pageContext,
-  { tone, complexity, brevity }
-) {
+
+export function buildPromptContextAwareRewrite(textWithoutPlaceholders, pageContext, mode){
   return `
-You are an AI text editor. Rewrite the user-selected section according to these settings:
+    Style Settings: ${mode}
 
-- Tone: ${tone}
-- Complexity: ${complexity}
-- Brevity: ${brevity}
-
-Rules:
-1. Rewrite ONLY the user-selected section.
-2. Ensure the rewritten section fits naturally and coherently with the provided page context.
-3. Match tone precisely.
-4. Adjust vocabulary and sentence structure to fit complexity.
-5. Match verbosity or conciseness to brevity.
-6. Keep meaning accurate, no new facts.
-7. Produce fluent, natural, polished text.
-
-Page Context:
-${pageContext}
-
-User-Selected Section:
-${textWithoutPlaceholders}
-  `;
+    User-Selected Section:
+    ${textWithoutPlaceholders}
+    `
 }
 
 // Prompt for alignment (merge placeholders back in)
@@ -163,8 +47,8 @@ export function buildPromptAlign(naturalText, placeholderText) {
 }
 
 // --- Hybrid AI handler ---
-export async function handleHybridRequest(eventData) {
-  const {
+export async function performRewrite(eventData) {
+  let {
     textWithPlaceholders,
     textWithoutPlaceholders,
     rewriteWithFormat,
@@ -172,112 +56,40 @@ export async function handleHybridRequest(eventData) {
     tone,
     complexity,
     brevity,
+    mode
   } = eventData;
   const profile = { tone, complexity, brevity };
-  _rewriteWithFormat = rewriteWithFormat;
-
+  
   const freeWritePrompt = buildPromptContextAwareRewrite(
     textWithoutPlaceholders,
     context,
-    profile
+    mode
   );
+  //debugLog("context aware prompt: ", freeWritePrompt)
 
+  let reply = ""
+  let result = {}
   
-  let result = ""
-  const fluentRewrite = await chrome.runtime.sendMessage({
-    action: "askGemini",
+  const fluentResult = await geminiRouter.ask({
     text: freeWritePrompt,
-    history: [],
-  });
-  
-  if(fluentRewrite.reply){
-    result = fluentRewrite.reply
-    console.log("Result: ", result)
-  }else{
-    console.log("Error: ",fluentRewrite)
-    window.postMessage({ type: "TS_GEMINI_ERROR", error: fluentRewrite }, "*");
-    return
-  }
-  
-  if(_rewriteWithFormat){
-    const prompt = buildPromptAlign(fluentRewrite.reply, textWithPlaceholders)
-    const response = await chrome.runtime.sendMessage({
-      action: "askGemini",
-      text: prompt,
-      history: [],
-    });
-    if(!response.reply){
-      console.warn("Error: ", response.error)
-      window.postMessage({ type: "TS_GEMINI_ERROR", error: response.error }, "*");
-    }else{
-      result = response.reply
-    }
-  }
-  window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result }, "*");
-  /*
-
-  // try Chrome Nano
-  let output = await tryChromeAI(freeWritePrompt);
-
-  // fallback Gemini if needed
-  if (!output) {
-    let fluentRewrite = await tryGeminiCloud(freeWritePrompt);
-    let result = { success: false };
-
-    if (fluentRewrite.success) {
-      if (_rewriteWithFormat) {
-        result = await tryGeminiCloud(
-          buildPromptAlign(fluentRewrite.text, textWithPlaceholders)
-        );
-      } else {
-        result = fluentRewrite;
-      }
-    } else{
-       window.postMessage({ type: "TS_GEMINI_ERROR", error: fluentRewrite.error }, "*");
-    }
-
-    if (result.success) {
-      window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result.text }, "*");
-    } else {
-      window.postMessage({ type: "TS_GEMINI_ERROR", error: result.error }, "*");
-    }
-    return;
-  }
-
-  // Chrome Nano succeeded
-  let result2 = { success: false };
-  if (_rewriteWithFormat) {
-    result2 = await tryChromeAI(buildPromptAlign(output, textWithPlaceholders));
-  } else {
-    result2 = output;
-  }
-
-  window.postMessage({ type: "TS_GEMINI_RESPONSE", text: result2 }, "*");
-  return;
-  */
+    history:[],
+    persistSession:false,
+    systemPrompt: `
+      You are an AI text editor. Rewrite only the user-selected section according to the style settings provided.
+      Rules:
+      - Rewrite only the user-selected section.
+      - Interpret the style settings directly and apply them faithfully in tone, word choice, and structure.
+      - Keep the original meaning — do not add or remove facts.
+      - The result must read smoothly, naturally, and feel complete in context.
+    `
+  })
+  result=fluentResult
+  console.log(result)
+  return result
 }
 
-console.log("✅ Modular Hybrid AI handler ready");
+debugLog("✅ Modular Hybrid AI handler ready");
 
-export function initHybridListener() {
-  window.addEventListener("message", async (event) => {
-    if (event.source !== window) return;
-    if (event.data.type !== "TS_GEMINI_REQUEST") return;
-    await handleHybridRequest(event.data);
-  });
-
-  window.addEventListener("message", async (event) => {
-    if (event.source !== window) return; // make sure it's from the page itself
-    if (event.data.type === "TS-SUMMARIZE-TEXT") {
-        console.log("Text to summarize:", event.data.text);
-        const response = await summarizeText(event.data.text)
-         window.postMessage(
-          { type: "TS-SUMMARIZE-TEXT-RESPONSE", id: event.data.id, response },
-          "*"
-        );
-    }
-  });
+function debugLog(...args) {
+  if (DEBUG_MODE) console.log("[Gemini Debug]", ...args);
 }
-initHybridListener()
-
-

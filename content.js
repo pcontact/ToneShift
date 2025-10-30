@@ -3,40 +3,10 @@
 
   console.log("ToneShift sidebar injected!");
 
-  /*
-  // --- Inject helper scripts into page context ---
-  const loaderScript = document.createElement("script");
-  loaderScript.type = "module";
-  loaderScript.src = chrome.runtime.getURL("pageGeminiLoader.js");
-  document.documentElement.appendChild(loaderScript);
-  */
+  const rewriteModule = await import(chrome.runtime.getURL('pageHybrid.js'));
 
-  const hybridScript = await import(chrome.runtime.getURL('pageHybrid.js'));
-  /*
-  document.createElement("script");
-  hybridScript.type = "module"
-  hybridScript.src = chrome.runtime.getURL("pageHybrid.js");
-  document.documentElement.appendChild(hybridScript);
-  */
+  const helperFunctions =  await import(chrome.runtime.getURL('utils/helpers.js'));
 
-  const extractMainTextModule = await import(chrome.runtime.getURL('utils/extractMainText.js'));
-
-  // add getRewriteContext.js
-   const getRewriteContextModule = await import(chrome.runtime.getURL('utils/getRewriteContext.js'));
-
-   const chatPanelModule = await import(chrome.runtime.getURL('chatPanel.js'));
-   chatPanelModule.registerVisibilityCallback((state) => {
-      isShowingPanels = state
-    })
-
-    const helperFunction = await import(chrome.runtime.getURL('utils/helpers.js'));
-
-    //const searchModule = await import(chrome.runtime.getURL('searchModule.js'));
-    //searchModule.init()
-
-
-   //console.log("::::",await getRewriteContextModule.getPageSummary(window.location.href, "the sky is blue"))
-  
    // --- Floating icon CSS ---
   const style = document.createElement("style");
   style.textContent = `
@@ -231,10 +201,6 @@
 
   document.head.appendChild(style);
 
-  // page main text contents
-  let mainText = null
-  let pageSummary = "";
-
   // --- Floating icon ---
   const floatingIcon = document.createElement("div");
   floatingIcon.id = "ts-floating-icon";
@@ -245,7 +211,7 @@
   // --- Floating preview button ---
   const floatingPreviewBtn = document.createElement("button");
   floatingPreviewBtn.className = "ts-floating-preview-btn";
-  floatingPreviewBtn.textContent = "✨ Refine";
+  floatingPreviewBtn.textContent = "✨ Refine this text";
   floatingPreviewBtn.title = "Polish your selected text instantly with ToneShift.";
   //document.body.appendChild(floatingPreviewBtn);
 
@@ -259,7 +225,7 @@
   explainBtn.className = "tsExplainBtn"
   explainBtn.textContent = "🔍 Help me Explain"
   explainBtn.title = "Get detailed explanation of the selected text."
-  fPBContainer.appendChild(explainBtn)
+  //fPBContainer.appendChild(explainBtn)
 
   // --- Sidebar host + shadow DOM ---
   const host = document.createElement("div");
@@ -614,14 +580,8 @@
   const resetBtn = qs("ts-reset");
   const spinner = qs("ts-spinner");
   const outputBox = qs("ts-output");
-  const rewritePageBtn = qs("ts-rewrite-page");
-  const undoAllBtn = qs("ts-undo-all");
-  const autoRewriteToggle = qs("ts-auto-rewrite");
-  const preserveFormattingCheckbox = qs('ts-preserve-formatting');
-  const geminiCloudModelToggle = qs('ts-gemini-cloud-model-toggle');
-const generalControls = qs('ts-general-controls');
-const apiKeyInput = qs('ts-gemini-api-key');
-const apiKeySaveBtn = qs('ts-set-key');
+  const apiKeyInput = qs('ts-gemini-api-key');
+  const apiKeySaveBtn = qs('ts-set-key');
 
   undoBtn.style.display = "none" // hide sidebar undoBtn
   applyBtn.style.display = "none" // hide sidebar applyBtn
@@ -633,7 +593,7 @@ const apiKeySaveBtn = qs('ts-set-key');
   let placeholderMap = {};
   let mapKeyPool = 0
   let rewriteWithFormat = false
-  let latestModeSelect = ""
+  let currentMode = ""
   let isShowingPanels = false
 
 
@@ -655,7 +615,7 @@ const apiKeySaveBtn = qs('ts-set-key');
     "Easy Read": { tone: 6, complexity: 2, brevity: 8 },
     "Casual": { tone: 5, complexity: 5, brevity: 5 },
     "Shorten": { tone: 2, complexity: 2, brevity: 8 },
-    "Formalize": { tone: 8, complexity: 9, brevity: 7 },
+    "Formal": { tone: 8, complexity: 9, brevity: 7 },
     "Creative": { tone: 6, complexity: 5, brevity: 6 },
     
   };
@@ -761,68 +721,6 @@ const apiKeySaveBtn = qs('ts-set-key');
     return revertPreviewBtn;
   }
 
-  // ################# Spinner when awaiting AI rewrite ###########################
-  const globalSpinner = document.createElement("div"); // One global spinner
-  globalSpinner.className = "ts-await-rewrite-spinner";
-  document.body.appendChild(globalSpinner);
-
-  let spinnerActive = false;
-  let trackedRect = null; // persistent rect snapshot
-
-  // Update spinner position based on stored rect
-  function updateSpinnerPosition() {
-    if (!spinnerActive || !trackedRect) return;
-
-    const rect = trackedRect.getBoundingClientRect();
-    if (!rect || (rect.width === 0 && rect.height === 0)) return;
-
-    globalSpinner.style.top = rect.top + rect.height / 2 - 12 + "px";
-    globalSpinner.style.left = rect.left + rect.width / 2 - 12 + "px";
-  }
-
-  /**
-   * Toggle spinner visibility centered on the initial selection rect.
-   * Once enabled, spinner keeps tracking that rect even if selection is cleared.
-   * @param {Selection} selection - window.getSelection()
-   * @param {Boolean} enable - true = show, false = hide
-   */
-  function toggleSpinner(range, enable) {
-    return
-    if (enable) {
-      if (!range) return;
-
-      // Capture the range so we can keep tracking after deselection
-      trackedRect = range; // store persistent Range
-
-      spinnerActive = true;
-      globalSpinner.style.display = "block";
-
-      // Initial positioning
-      updateSpinnerPosition();
-
-      // Keep updating on scroll/resize
-      const reposition = () => updateSpinnerPosition();
-      window.addEventListener("scroll", reposition, true);
-      window.addEventListener("resize", reposition);
-
-      globalSpinner._cleanup = () => {
-        window.removeEventListener("scroll", reposition, true);
-        window.removeEventListener("resize", reposition);
-      };
-    } else {
-      spinnerActive = false;
-      trackedRect = null;
-      globalSpinner.style.display = "none";
-
-      if (globalSpinner._cleanup) {
-        globalSpinner._cleanup();
-        globalSpinner._cleanup = null;
-      }
-    }
-  }
-  // ################# END - Spinner when awaiting AI rewrite ###########################
-
-
   // Listen for text selection - FIXED: Better event handling
   let isMouseDownOnButton = false;
 
@@ -836,9 +734,10 @@ const apiKeySaveBtn = qs('ts-set-key');
     isMouseDownOnButton = false;
   });
 
+  
   explainBtn.addEventListener("click", async (e)=>{
     e.stopPropagation();
-    expandSelectionToSentence()
+    //expandSelectionToWholeWordsAcrossNodes()
     const selection = window.getSelection();
     await chatPanelModule.openChatPanel(selection)
     if(!chatPanelModule.isInputHandlerSet)
@@ -846,29 +745,6 @@ const apiKeySaveBtn = qs('ts-set-key');
     hideFloatingPreviewButton();
     
   })
-
-  function updateGeneralControlState(state) {
-    const enabled = state;
-    if (enabled) {
-      generalControls.classList.remove('inactive');
-      apiKeyInput.disabled = false;
-      apiKeySaveBtn.disabled = false;
-    } else {
-      generalControls.classList.add('inactive');
-      apiKeyInput.disabled = true;
-      apiKeySaveBtn.disabled = true;
-    }
-  }
-
-  geminiCloudModelToggle.addEventListener('change', (e) => {
-    e.stopPropagation();
-    const useCloudModel = geminiCloudModelToggle.checked;
-    chrome.storage.local.set({  useCloudModel }, () => {
-      console.log("Set useCloudModel to", useCloudModel);
-      chrome.runtime.sendMessage({ action: 'updateGeminiModelPreference', useCloudModel });
-      updateGeneralControlState(geminiCloudModelToggle.checked)
-    });
-  });
 
   apiKeySaveBtn.addEventListener('click', () => {
     const key = apiKeyInput.value.trim();
@@ -885,76 +761,6 @@ const apiKeySaveBtn = qs('ts-set-key');
     });
   });
 
-  /*
-  //Getting page summarization for context
-  async function summarizeWithAI(text) {
-    console.log("Summarizing new content...");
-
-    // Prefer the shared summarizeToFit helper from chatPanel if available
-    try {
-      if (chatPanelModule && typeof chatPanelModule.summarizeToFit === 'function') {
-        // Use a reasonable token target for page summaries
-        const target = chatPanelModule.CONTEXT_BUDGET; // keep under the CONTEXT_BUDGET in chatPanel
-        const summary = await chatPanelModule.summarizeToFit(text, target, 'page content');
-        console.log("AI Summary (via chatPanel.summarizeToFit):", summary);
-        return summary;
-      }
-    } catch (e) {
-      console.warn('chatPanel.summarizeToFit failed, falling back to local summarizer', e);
-    }
-
-    // Fallback: local (fake) summarizer
-    const summary = await fakeAISummarizer(text);
-    console.log("AI Summary (fallback):", summary);
-    return summary;
-  }
-
-  // Simulated AI function (replace with your real one)
-  function fakeAISummarizer(text) {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        resolve(text.slice(0, 200) + '... [summary truncated]');
-      }, 1000);
-    });
-  }
-
-  // Debounce helper to limit frequent updates
-  function debounce(fn, delay) {
-    let timer;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn(...args), delay);
-    };
-  }
-
-  // Debounced content check
-  const debouncedCheck = debounce(() => {
-    const text = extractMainTextModule.extractMainTextFromDocument(document);
-    if (text) {
-      summarizeWithAI(text);
-    } else {
-      console.log("No significant new content to summarize.");
-    }
-  }, 3000); // adjust delay to taste
-
-  // Observe DOM changes
-  const observer = new MutationObserver(() => {
-    debouncedCheck();
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // Initial check after full page load
-  window.addEventListener('load', async () => {
-    const text = extractMainTextModule.extractMainTextFromDocument(document);
-    if (text){
-      pageSummary = await summarizeWithAI(text);
-      chatPanelModule.setDefaultContext(pageSummary);
-    }
-  });
-  */
-
-
   document.addEventListener('mousedown', (e) => {
     //console.log(document.body.innerText)
     // Only hide if not clicking on the button itself
@@ -967,16 +773,12 @@ const apiKeySaveBtn = qs('ts-set-key');
     // Don't process if clicking on ToneShift UI or the floating button
     if (e.target.closest('#toneshift-sidebar-host') || 
         e.target === floatingPreviewBtn ||
-        isMouseDownOnButton) {
-        //console.log("clicking inside. isMouseDownOnButton: ", isMouseDownOnButton)
+        isMouseDownOnButton){return;}
 
-          return;
-
-    }
     const selection = window.getSelection();
     const selectedText = selection.toString().trim();
     
-  if (selectedText.length > 5) {
+  if (selectedText.split(" ").length > 5) {
       //console.log("selected some text")
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
@@ -998,8 +800,7 @@ const apiKeySaveBtn = qs('ts-set-key');
     } else {
       hideFloatingPreviewButton();
     }
-  });
-  
+  });  
 
   //expand the current selection to the containing sentence (works across inline tags)
   function expandSelectionToSentence({ debug = false } = {}) {
@@ -1152,6 +953,108 @@ const apiKeySaveBtn = qs('ts-set-key');
     }
   }
 
+  // Expands selection to full words, but only across blocks if the user selection spans them
+  function expandSelectionToWholeWordsAcrossNodes({ debug = false } = {}) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+
+    const origRange = sel.getRangeAt(0);
+
+    // Get start and end elements
+    const startEl = origRange.startContainer.nodeType === Node.ELEMENT_NODE
+      ? origRange.startContainer
+      : origRange.startContainer.parentElement;
+    const endEl = origRange.endContainer.nodeType === Node.ELEMENT_NODE
+      ? origRange.endContainer
+      : origRange.endContainer.parentElement;
+
+    // Find the common ancestor (usually a container like <div> or <body>)
+    let ancestor = origRange.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? origRange.commonAncestorContainer
+      : origRange.commonAncestorContainer.parentNode;
+
+    // If the selection is fully inside one element, confine to that element
+    // Otherwise, allow expansion across blocks
+    if (startEl && endEl && startEl === endEl) {
+      ancestor = startEl;
+    }
+
+    // Flatten text within the chosen ancestor
+    const fullRange = document.createRange();
+    fullRange.selectNodeContents(ancestor);
+    const fullText = fullRange.toString();
+
+    // Compute absolute offsets relative to ancestor
+    function absoluteOffset(container, offset) {
+      try {
+        const r = document.createRange();
+        r.setStart(ancestor, 0);
+        r.setEnd(container, offset);
+        return r.toString().length;
+      } catch {
+        return null;
+      }
+    }
+
+    let absStart = absoluteOffset(origRange.startContainer, origRange.startOffset);
+    let absEnd = absoluteOffset(origRange.endContainer, origRange.endOffset);
+
+    if (absStart === null) absStart = 0;
+    if (absEnd === null) absEnd = fullText.length;
+    if (absStart > absEnd) [absStart, absEnd] = [absEnd, absStart];
+
+    // Expand to word boundaries
+    while (absStart > 0 && /\w/.test(fullText[absStart - 1])) absStart--;
+    while (absEnd < fullText.length && /\w/.test(fullText[absEnd])) absEnd++;
+
+    // Map absolute offsets back to nodes
+    const walker = document.createTreeWalker(ancestor, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+    let cum = 0;
+    let startNode = null, startOffset = 0;
+    let endNode = null, endOffset = 0;
+
+    for (const tn of textNodes) {
+      const nextCum = cum + tn.textContent.length;
+
+      if (!startNode && absStart <= nextCum) {
+        startNode = tn;
+        startOffset = absStart - cum;
+      }
+      if (!endNode && absEnd <= nextCum) {
+        endNode = tn;
+        endOffset = absEnd - cum;
+      }
+
+      cum = nextCum;
+    }
+
+    if (!startNode) {
+      startNode = textNodes[0];
+      startOffset = 0;
+    }
+    if (!endNode) {
+      endNode = textNodes[textNodes.length - 1];
+      endOffset = endNode.textContent.length;
+    }
+
+    const newRange = document.createRange();
+    newRange.setStart(startNode, startOffset);
+    newRange.setEnd(endNode, endOffset);
+
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+
+    if (debug) {
+      console.group('expandSelectionToWholeWordsAcrossNodes');
+      console.log('Ancestor:', ancestor);
+      console.log('Expanded selection:', JSON.stringify(fullText.slice(absStart, absEnd)));
+      console.groupEnd();
+    }
+  }
+
   // expand the selection to a whole paragraph
   function expandSelectionToParagraph() {
     const selection = window.getSelection();
@@ -1188,122 +1091,83 @@ const apiKeySaveBtn = qs('ts-set-key');
     return null;
   }
 
+  function getSelectionParentContainer() {
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return null;
+
+    let node = selection.anchorNode;
+
+    // If the selection is within a text node, move up to its element parent
+    if (node.nodeType === Node.TEXT_NODE) {
+      node = node.parentNode;
+    }
+
+    // Walk up until we find a meaningful container
+    while (node) {
+      if (
+        node.nodeType === Node.ELEMENT_NODE &&
+        ['P', 'LI', 'DIV', 'TD', 'SECTION', 'ARTICLE'].includes(node.tagName)
+      ) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+
+    // Fallback: return the actual text if no container found
+    return null;
+  }
+
+
 
   // Floating button click handler - FIXED: Use stored state
   floatingPreviewBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    //console.log("Maintext:", extractMainTextModule.extractMainTextFromDocument(document));
     
     if (floatingButtonState.range) {
-      // Create a selection from the stored range
-      expandSelectionToSentence()
-      const parentParagraph = getSelectionParentParagraph()
-      //expandSelectionToParagraph() // expand the selection to a whole paragraph
-      const selection = window.getSelection();
-      //selection.removeAllRanges();
-      //selection.addRange(floatingButtonState.range.cloneRange());
-      const range = selection.getRangeAt(0).cloneRange();
-      const originalContent = range.cloneContents();
-      const mapKey = getMapKey();
-      rewriteMap[mapKey] = {range:range, originalContent:originalContent, parentParagraph:parentParagraph};
-      
-      //console.log(rewriteMap)
-      
-      isPreviewMode = true
-
-      //#microcard testing
-      /*
-      setTimeout(() => {
-      showMicroCard(selection, mapKey);
-      }, 10);
-
       hideFloatingPreviewButton();
-
-      setTimeout(()=>{
-        updateOutputDisplayUI("Something went wrong", false)
-      }, 2000)
-      return
-      */
-
-      // Ensure microcard is created and populated before sending the preview request
-      // Awaiting showMicroCard avoids a race where the AI response arrives before
-      // the microcard DOM exists (which previously caused document.querySelector to return null).
-      setTimeout(async () => {
-        await showMicroCard(selection, mapKey);
-      }, 20);
-      
-
-      // Use the same preview logic (now that the microcard exists)
-      await performPreview(mapKey);
-
-      
-      
-      
-      hideFloatingPreviewButton();
+      initiateRewrite()
     } else {
       console.error("No preview range available");
     }
   });
 
-    // Add a change event listener to the checkbox
-  preserveFormattingCheckbox.addEventListener('change', (event) => {
-      // Get the checked state of the checkbox
-      const rewriteWithFormat = event.target.checked;
+  async function initiateRewrite(){
+    // Create a selection from the stored range
+    //expandSelectionToWholeWordsAcrossNodes()
+    const parentContainer = getSelectionParentContainer()
+    //expandSelectionToParagraph() // expand the selection to a whole paragraph
+    const selection = window.getSelection();
+    //selection.removeAllRanges();
+    //selection.addRange(floatingButtonState.range.cloneRange());
+    const range = selection.getRangeAt(0).cloneRange();
+    const originalContent = range.cloneContents();
+    const mapKey = getMapKey();
+    rewriteMap[mapKey] = {range:range, originalContent:originalContent, parentContainer:parentContainer};
+    
+    //console.log(rewriteMap)
+    
+    isPreviewMode = true
 
-      // Use chrome.storage.local.set() to save the value
-      chrome.storage.local.set({ rewriteWithFormat: rewriteWithFormat }, () => {
-          if (chrome.runtime.lastError) {
-              console.error("Error setting withFormatting:", chrome.runtime.lastError);
-          } else {
-              console.log("rewriteWithFormat value is now:", rewriteWithFormat);
-          }
-      });
-  });
+    // Ensure microcard is created and populated before sending the preview request
+    // Awaiting showMicroCard avoids a race where the AI response arrives before
+    // the microcard DOM exists (which previously caused document.querySelector to return null).
+    setTimeout(async () => {
+      await showMicroCard(selection, mapKey);
+    }, 20);
+    
 
-  // --- Show floating preview preference wiring (query from sidebar shadow DOM) ---
-  const showFloatingCheckbox = qs('ts-show-floating');
-  if (showFloatingCheckbox) {
-    // Load saved preference; default to true
-    chrome.storage.local.get('showFloatingOnHighlight', (data) => {
-      if (data.showFloatingOnHighlight === undefined || data.showFloatingOnHighlight === null) {
-        showFloatingCheckbox.checked = true;
-      } else {
-        showFloatingCheckbox.checked = !!data.showFloatingOnHighlight;
-      }
-    });
-
-    showFloatingCheckbox.addEventListener('change', (e) => {
-      const enabled = !!e.target.checked;
-      chrome.storage.local.set({ showFloatingOnHighlight: enabled }, () => {
-        if (chrome.runtime.lastError) console.error('Error saving showFloatingOnHighlight', chrome.runtime.lastError);
-        console.log('showFloatingOnHighlight set to', enabled);
-      });
-    });
+    // Use the same preview logic (now that the microcard exists)
+    await performPreview(mapKey);
   }
 
-  // Load the saved state when the popup/page opens
-  // This ensures the checkbox reflects the user's last choice
-  window.addEventListener('load', async () => {
-    console.log("window loaded")
-      chrome.storage.local.get('rewriteWithFormat', (data) => {
-          if (data.rewriteWithFormat !== undefined) {
-              preserveFormattingCheckbox.checked = data.rewriteWithFormat;
-          }
-      });
-      
-  });
 
   // ================ Storage Initialization ================== 
    chrome.storage.local.get("tsLastMode", (data) => {
-      console.log("last mode: ", data)
       if(!data.tsLastMode) chrome.storage.local.set({ tsLastMode:"Simplify"})
+        currentMode = data.tsLastMode
     })
-    chrome.storage.local.get("useCloudModel", (data)=>{
-      if (data.useCloudModel !== undefined) {
-        geminiCloudModelToggle.checked = data.useCloudModel;
-        updateGeneralControlState(data.useCloudModel)
-      }
-    });
+
+    
 
   // --- Common Preview Function ---
   async function performPreview(rewriteMapKey) {
@@ -1314,20 +1178,6 @@ const apiKeySaveBtn = qs('ts-set-key');
       outputBox.textContent = "No text selected.";
       return;
     }
-
-    //console.log("Performing preview on selection:", selectionText.substring(0, 50) + "...");
-
-    // Clear any existing preview
-    //clearInlinePreview();
-
-    // Store selection info for inline preview
-    //isPreviewMode = true;
-    //previewRange = selection.getRangeAt(0).cloneRange();
-    //previewOriginalContent = previewRange.cloneContents();
-    
-
-    toggleSpinner(selection, true)
-    setLoading(true);
 
     // Reset globals
     placeholderIndex = 0;
@@ -1342,24 +1192,27 @@ const apiKeySaveBtn = qs('ts-set-key');
       brevity: mapBrevity(brevitySlider.value),
     };
 
-    const pageId = window.location.href
-    const fullPageText = extractMainTextModule.extractMainTextFromDocument(document)
-    const selectedText = selectionText
-    //console.log("fullpage text: ", fullPageText)
-    const _context = await getRewriteContextModule.getRewriteContext(pageId, fullPageText, selectedText);
-    
+    const _context = "" 
+    const {rewriteWithFormat} = await chrome.storage.local.get("rewriteWithFormat")
     // Send to AI
-    window.postMessage(
-      {
+
+    const eventData = {
         type: "TS_GEMINI_REQUEST",
         textWithPlaceholders: textWithPlaceholders.trim(),
         textWithoutPlaceholders: selectionText,
-        rewriteWithFormat:preserveFormattingCheckbox.checked,
+        rewriteWithFormat:rewriteWithFormat,
         context:_context,
         ...settings,
-      },
+        mode:currentMode
+      }
+    /*window.postMessage(
+      eventData,
       "*"
-    );
+    );*/
+
+    const result = await rewriteModule.performRewrite(eventData)
+    const rewrittenText = result.reply || "Something went wrong."
+    updateOutputDisplayUI(rewrittenText, result)
   }
 
   // --- Profile Loading - FIXED: Properly include user profiles ---
@@ -1440,8 +1293,8 @@ const apiKeySaveBtn = qs('ts-set-key');
   modeSelect.addEventListener("change", (e) => {
     e.stopPropagation()
     const modeName = modeSelect.value;
-    latestModeSelect = modeName;
-    console.log("Mode changed to:", latestModeSelect);
+    currentMode = modeName;
+    console.log("Mode changed to:", currentMode);
     const profile = { ...builtInPresets[modeName], ...userProfiles[modeName] };
     if (profile) {
       applyProfile(profile);
@@ -1532,242 +1385,169 @@ const apiKeySaveBtn = qs('ts-set-key');
     if (v <= 8) return "Concise";
     return "Very Short";
   }
-
-  // --- Gemini response listener ---
-  window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
-
-    if (event.data.type === "TS_GEMINI_RESPONSE") {
-      lastAIResponse = event.data.text;
-      lastAIResponse = convertOmittedPlaceHolders(lastAIResponse);
-      const rewrittenText = reconstructHTML(lastAIResponse)
-      updateOutputDisplayUI(rewrittenText)
-      
-      if (isPreviewMode) {
-        //applyInlinePreview(lastAIResponse);
-        isPreviewMode = false;
-      } else {
-        outputBox.textContent = lastAIResponse;
-      }
-      
-      setLoading(false);
-      toggleSpinner(null, false)
-    }
-
-    if (event.data.type === "TS_GEMINI_ERROR") {
-      console.log("listener got some error")
-      updateOutputDisplayUI("Something went wrong. Try again", false)
-
-      outputBox.textContent = "⚠️ Error: " + (event.data.error || "Something went wrong");
-      lastAIResponse = "";
-      //setLoading(false);
-      //toggleSpinner(null, false)
-
-      if (isPreviewMode) {
-        isPreviewMode = false;
-        previewRange = null;
-        previewOriginalContent = null;
-      }
-    }
-  });
-
-
-  function reconstructHTML(aiResponse){
-    // Use the same reconstruction logic as the Apply button
-    // Use the same reconstruction logic as the Apply button
-      let reconstructedHTML = aiResponse;
-      const tagRegex = /_TS_TAG_(\d+)_START\[(.*?)\]_TS_TAG_\1_END/g;
-
-      let iterations = 0;
-      while (tagRegex.test(reconstructedHTML) && iterations < 50) {
-        reconstructedHTML = reconstructedHTML.replace(tagRegex, (match, index, innerText) => {
-          const key = `_TS_TAG_${index}`;
-          const node = placeholderMap[key]?.cloneNode(true);
-
-          if (node) {
-            node.textContent = innerText;
-            return node.outerHTML;
-          }
-          return innerText;
-        });
-        iterations++;
-      }
-
-      // Clean up any stray placeholders
-      reconstructedHTML = reconstructedHTML.replace(/_TS_TAG_\d+_START\[?/g, "");
-      reconstructedHTML = reconstructedHTML.replace(/\]?_TS_TAG_\d+_END/g, "");
-      return reconstructedHTML;
-  }
   // Robust applyInlinePreview with correct mapping of selection to cloned paragraph
-function applyInlinePreview(rewrittenText, rewriteMapKey) {
-  if (!rewriteMapKey) {
-    console.error("No rewriteMapKey provided for inline preview.");
-    return;
-  }
-
-  try {
-    hideFloatingPreviewButton();
-
-    const mapEntry = rewriteMap[rewriteMapKey];
-    if (!mapEntry) {
-      console.error("No entry in rewriteMap for key:", rewriteMapKey);
+  function applyInlinePreview(rewrittenText, rewriteMapKey) {
+    if (!rewriteMapKey) {
+      console.error("No rewriteMapKey provided for inline preview.");
       return;
     }
 
-    const { range, originalNodes, parentParagraph } = mapEntry;
-    if (!range || !parentParagraph) {
-      console.error("Missing range or parentParagraph in rewriteMap entry.");
-      return;
-    }
+    try {
+      hideFloatingPreviewButton();
 
-    // --- Compute character offsets of the selection within the parentParagraph ---
-    function getOffsetsWithinContainer(rng, container) {
-      const beforeStart = document.createRange();
-      beforeStart.setStart(container, 0);
-      beforeStart.setEnd(rng.startContainer, rng.startOffset);
-      const start = beforeStart.toString().length;
-
-      const beforeEnd = document.createRange();
-      beforeEnd.setStart(container, 0);
-      beforeEnd.setEnd(rng.endContainer, rng.endOffset);
-      const end = beforeEnd.toString().length;
-
-      return { start, end };
-    }
-
-    const { start: selStart, end: selEnd } = getOffsetsWithinContainer(range, parentParagraph);
-
-    // --- Prepare clones ---
-    const originalClone = parentParagraph.cloneNode(true); // pristine copy for revert
-    mapEntry.originalClone = originalClone;
-
-    const previewParagraph = parentParagraph.cloneNode(true); // mutated copy for preview
-
-    // --- Create preview container and meta row + revert button ---
-    const previewContainer = document.createElement("aside");
-    previewContainer.className = "ts-preview-container";
-    previewContainer.setAttribute("role", "region");
-    previewContainer.setAttribute("aria-labelledby", "ai-label");
-
-    const metaRow = document.createElement("div");
-    metaRow.className = "ts-meta";
-
-    const badge = document.createElement("span");
-    badge.className = "ts-badge";
-    badge.id = "ai-label";
-    badge.textContent = "AI Refined text" + (typeof latestModeSelect !== "undefined" ? latestModeSelect : "");
-
-    const revertButton = createRevertPreviewBtn();
-    revertButton.textContent = "Back to original text";
-    revertButton.classList.add("ts-revert-button");
-
-    metaRow.appendChild(badge);
-    metaRow.appendChild(revertButton);
-
-    // --- Map offsets into the cloned paragraph and produce a Range there ---
-    function createRangeFromOffsets(container, startOffset, endOffset) {
-      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-      let node;
-      let charCount = 0;
-      let foundStart = false;
-      const newRange = document.createRange();
-
-      while ((node = walker.nextNode())) {
-        const nodeLen = node.textContent.length;
-
-        if (!foundStart && charCount + nodeLen >= startOffset) {
-          newRange.setStart(node, startOffset - charCount);
-          foundStart = true;
-        }
-
-        if (foundStart && charCount + nodeLen >= endOffset) {
-          newRange.setEnd(node, endOffset - charCount);
-          return newRange;
-        }
-
-        charCount += nodeLen;
-      }
-
-      // If selection ends exactly at container end, and start was found, terminate at last node end
-      if (foundStart) {
-        // setEnd on the last seen node at its length
-        newRange.setEnd(node, node.textContent.length);
-        return newRange;
-      }
-
-      // couldn't map the offsets
-      return null;
-    }
-
-    const cloneRange = createRangeFromOffsets(previewParagraph, selStart, selEnd);
-
-    // --- Insert highlight in clone (use a fresh element for insertion) ---
-    if (cloneRange) {
-      const highlightSpan = document.createElement("span");
-      highlightSpan.className = "ts-preview-text-highlight";
-      highlightSpan.textContent = rewrittenText;
-
-      cloneRange.deleteContents();
-      // If inserting node into a text node boundary, insertNode will split node as needed
-      cloneRange.insertNode(highlightSpan);
-    } else {
-      // Fallback: try a best-effort text replacement or append highlight at end
-      console.warn("Could not map selection into cloned paragraph; appending highlight at end as fallback.");
-      const fallbackSpan = document.createElement("span");
-      fallbackSpan.className = "ts-preview-text-highlight";
-      fallbackSpan.textContent = rewrittenText;
-      previewParagraph.appendChild(fallbackSpan);
-    }
-
-    // --- Assemble preview and replace original paragraph ---
-    previewContainer.appendChild(metaRow);
-    previewContainer.appendChild(previewParagraph);
-
-    // Keep an undo record (you might want to store originalClone here too)
-    undoStack.push({ range, originalNodes, parentParagraph });
-
-    parentParagraph.replaceWith(previewContainer);
-    currentPreviewElement = previewContainer;
-    isPreviewMode = true;
-
-    // --- Revert logic: replace preview with the pristine original clone ---
-    revertButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const container = e.target.closest(".ts-preview-container");
-      const entry = rewriteMap[rewriteMapKey];
-      const cloneForRestore = entry && entry.originalClone;
-
-      if (!container || !cloneForRestore) {
-        console.error("Missing preview container or original clone for revert.");
+      const mapEntry = rewriteMap[rewriteMapKey];
+      if (!mapEntry) {
+        console.error("No entry in rewriteMap for key:", rewriteMapKey);
         return;
       }
 
-      container.replaceWith(cloneForRestore);
-      delete rewriteMap[rewriteMapKey];
-      isPreviewMode = false;
-      console.log("Reverted to original paragraph.");
-    });
+      const { range, originalNodes, parentContainer } = mapEntry;
+      if (!range || !parentContainer) {
+        console.error("Missing range or parentContainer in rewriteMap entry.");
+        return;
+      }
 
-    console.log("Inline preview applied (mapped by character offsets).");
-    return rewriteMapKey;
+      // --- Compute character offsets robustly (works even with nested nodes) ---
+      function getOffsetsWithinContainer(rng, container) {
+        const preRange = document.createRange();
+        preRange.setStart(container, 0);
+        preRange.setEnd(rng.startContainer, rng.startOffset);
+        const start = preRange.toString().length;
 
-  } catch (error) {
-    console.error("Error applying inline preview:", error);
+        const postRange = document.createRange();
+        postRange.setStart(container, 0);
+        postRange.setEnd(rng.endContainer, rng.endOffset);
+        const end = postRange.toString().length;
+
+        return { start, end };
+      }
+
+      const { start: selStart, end: selEnd } = getOffsetsWithinContainer(range, parentContainer);
+
+      // --- Clone original container ---
+      const originalClone = parentContainer.cloneNode(true);
+      mapEntry.originalClone = originalClone;
+
+      const previewContainer = parentContainer.cloneNode(true);
+
+      // --- Create highlight range within the clone ---
+      function createRangeFromOffsets(container, startOffset, endOffset) {
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let node, lastNode = null;
+        let charCount = 0;
+        const newRange = document.createRange();
+        let foundStart = false;
+
+        while ((node = walker.nextNode())) {
+          const len = node.textContent.length;
+          lastNode = node;
+
+          if (!foundStart && charCount + len >= startOffset) {
+            newRange.setStart(node, startOffset - charCount);
+            foundStart = true;
+          }
+          if (foundStart && charCount + len >= endOffset) {
+            newRange.setEnd(node, endOffset - charCount);
+            return newRange;
+          }
+
+          charCount += len;
+        }
+
+        // --- Handle edge cases ---
+        if (foundStart) {
+          // If we started but didn't find an end, use the last node we saw
+          if (lastNode) {
+            newRange.setEnd(lastNode, lastNode.textContent.length);
+            return newRange;
+          }
+        } else if (lastNode) {
+          // Selection may start at the very end of container
+          newRange.setStart(lastNode, lastNode.textContent.length);
+          newRange.setEnd(lastNode, lastNode.textContent.length);
+          return newRange;
+        }
+
+        console.warn("Could not map offsets within container; returning null range.");
+        return null;
+      }
+
+
+      const cloneRange = createRangeFromOffsets(previewContainer, selStart, selEnd);
+
+      if (cloneRange) {
+        const highlightSpan = document.createElement("span");
+        highlightSpan.className = "ts-preview-text-highlight";
+        highlightSpan.textContent = rewrittenText;
+        cloneRange.deleteContents();
+        cloneRange.insertNode(highlightSpan);
+      } else {
+        const fallbackSpan = document.createElement("span");
+        fallbackSpan.className = "ts-preview-text-highlight";
+        fallbackSpan.textContent = rewrittenText;
+        previewContainer.appendChild(fallbackSpan);
+      }
+
+      // --- Build meta row + revert logic ---
+      const metaRow = document.createElement("div");
+      metaRow.className = "ts-meta";
+
+      const badge = document.createElement("span");
+      badge.className = "ts-badge";
+      badge.textContent = "AI Refined text";
+
+      const revertButton = createRevertPreviewBtn();
+      revertButton.textContent = "Back to original text";
+      revertButton.classList.add("ts-revert-button");
+
+      metaRow.appendChild(badge);
+      metaRow.appendChild(revertButton);
+
+      const wrapper = document.createElement("aside");
+      wrapper.className = "ts-preview-container";
+      wrapper.setAttribute("role", "region");
+      wrapper.appendChild(metaRow);
+      wrapper.appendChild(previewContainer);
+
+      undoStack.push({ range, originalNodes, parentContainer });
+      parentContainer.replaceWith(wrapper);
+      currentPreviewElement = wrapper;
+      isPreviewMode = true;
+
+      revertButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const container = e.target.closest(".ts-preview-container");
+        const entry = rewriteMap[rewriteMapKey];
+        const cloneForRestore = entry && entry.originalClone;
+
+        if (container && cloneForRestore) {
+          container.replaceWith(cloneForRestore);
+          delete rewriteMap[rewriteMapKey];
+          isPreviewMode = false;
+        } else {
+          console.error("Missing restore target.");
+        }
+      });
+
+      console.log("Inline preview applied (works with any container).");
+      return rewriteMapKey;
+
+    } catch (error) {
+      console.error("Error applying inline preview:", error);
+    }
   }
-}
-
 
   function revertInlinePreview(mapKey, removeEntry=false) {
-    const { parentParagraph } = rewriteMap[mapKey];
+    const { parentContainer } = rewriteMap[mapKey];
     const previewContainer = e.target.closest(".ts-preview-container");
 
-    if (!previewContainer || !parentParagraph) {
+    if (!previewContainer || !parentContainer) {
       console.error("Missing preview container or original paragraph for revert.");
       return;
     }
 
     // Replace the entire preview container with the original paragraph
-    previewContainer.replaceWith(parentParagraph);
+    previewContainer.replaceWith(parentContainer);
 
     // Cleanup state
     if(removeEntry){
@@ -1944,43 +1724,12 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     }
   });
 
-  // --- Spinner / disable buttons ---
-  function setLoading(isLoading) {
-    return
-    if (isLoading) {
-      spinner.style.display = "block";
-      previewBtn.disabled = true;
-      applyBtn.disabled = true;
-      undoBtn.disabled = true;
-      resetBtn.disabled = true;
 
-      if (setLoading._timeout) clearTimeout(setLoading._timeout);
-      setLoading._timeout = setTimeout(() => {
-        outputBox.textContent = "⚠️ Request timed out.";
-        setLoading(false);
-        
-        // Reset preview state on timeout
-        /*
-        if (isPreviewMode) {
-          isPreviewMode = false;
-          previewRange = null;
-          previewOriginalContent = null;
-        }
-        */
-      }, 100000);
-    } else {
-      spinner.style.display = "none";
-      previewBtn.disabled = false;
-      applyBtn.disabled = false;
-      undoBtn.disabled = false;
-      resetBtn.disabled = false;
-      if (setLoading._timeout) clearTimeout(setLoading._timeout);
-    }
-  }
-
+  let modelPreferenceChangeCallbacks = []
   // --- Listen for background message ---
   chrome.runtime.onMessage.addListener(async (msg) => {
     if (msg.action === "toggleSidebar") {
+      return
       if (msg.visible) {
         sidebar.style.display = "block";
         floatingIcon.style.display = "none";
@@ -1991,104 +1740,21 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       chrome.storage.local.set({ sidebarVisible: msg.visible });
     }
     if (msg.action == "helpMeExplain"){
-      console.log("got helpmeexplain message from backgroun")
+      //console.log("got helpmeexplain message from backgroun")
       await chatPanelModule.openChatPanel(null)
       if(!chatPanelModule.isInputHandlerSet)
         await chatPanelModule.registerInputHandler(explainTextInputHelper)
     }
-  });
 
-  /*
-  // --- Rewrite page ---
-  rewritePageBtn.addEventListener("click", async () => {
-    console.log("🔄 Rewrite entire page requested");
-    await rewritePageWithProfile();
-  });
-
-  // --- Undo All ---
-  undoAllBtn.addEventListener("click", async () => {
-    const proceed = confirm(
-      "Undo All rewrites will reload the page. Any unsaved changes on this page will be lost. Continue?"
-    );
-    if (!proceed) return;
-
-    console.log("↩️ Undo all: reloading page...");
-    const data = await chrome.storage.local.get(["sidebarVisible"]);
-    const wasSidebarVisible = data.sidebarVisible;
-
-    await chrome.storage.local.set({
-      skipAutoRewrite: true,
-      restoreSidebar: wasSidebarVisible,
-    });
-
-    location.reload();
-  });
-
-  // --- Auto-Rewrite toggle ---
-  chrome.storage.local.get(["autoRewrite"], (data) => {
-    if (data.autoRewrite) autoRewriteToggle.checked = true;
-  });
-
-  autoRewriteToggle.addEventListener("change", async (e) => {
-    const enabled = e.target.checked;
-    await chrome.storage.local.set({ autoRewrite: enabled });
-    console.log("⚙️ Auto-Rewrite Pages set to:", enabled);
-
-    if (enabled) await rewritePageWithProfile();
-  });
-
-  // --- Sync autoRewrite toggle across contexts ---
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.autoRewrite && autoRewriteToggle) {
-      autoRewriteToggle.checked = changes.autoRewrite.newValue;
+    if (msg.action == "refineText"){
+      const selection = window.getSelection();
+      const selectedText = selection.toString().trim();
+    
+      if(selectedText.split(" ").length <  5) {alert("No selected texts or texts length too short.\nSelect 5 or more words to refine"); return}
+      initiateRewrite()
+      hideFloatingPreviewButton()
     }
   });
-
-  // --- Handle auto-rewrite on page load and restore sidebar ---
-  chrome.storage.local.get(
-    ["autoRewrite", "skipAutoRewrite", "restoreSidebar"],
-    async (data) => {
-      if (data.skipAutoRewrite) {
-        await chrome.storage.local.set({ skipAutoRewrite: false });
-        console.log("⚠️ Skipping auto-rewrite due to Undo All");
-      } else if (data.autoRewrite) {
-        console.log("⚡ Auto-Rewrite Pages active: rewriting page...");
-        await rewritePageWithProfile();
-      }
-
-      if (data.restoreSidebar) {
-        chrome.runtime.sendMessage({
-          action: "toggleSidebar",
-          visible: data.restoreSidebar,
-        });
-        await chrome.storage.local.set({ restoreSidebar: false });
-      }
-    }
-  );
-
-  // --- Page-wide Rewrite scaffolding ---
-  async function rewritePageWithProfile() {
-    console.log("⚙️ [rewritePageWithProfile] Starting rewrite...");
-
-    const profile = {
-      tone: mapTone(toneSlider.value),
-      complexity: mapComplexity(complexitySlider.value),
-      brevity: mapBrevity(brevitySlider.value),
-    };
-
-    const pageText = document.body.innerText;
-
-    if (!pageText || pageText.trim().length < 20) {
-      console.warn("⚠️ Not enough text content to rewrite.");
-      return;
-    }
-
-    // TODO: Send pageText + profile to Gemini via window.postMessage
-    // window.postMessage({ type: "TS_GEMINI_REQUEST", text: pageText, ...profile }, "*");
-
-    console.log("Would rewrite page with profile:", profile);
-  }
-    */
 
   function convertOmittedPlaceHolders(inputText) {
     const marker = "#omitted placeholders"; 
@@ -2116,18 +1782,18 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     // Build compact card HTML string with smaller header
     let cardHTML = `
-<div style="max-width: 800px; margin: 4px auto 10px; font-family: sans-serif;">
-  <h5 style="margin: 2px 0 4px; font-size: 13px; color: #555;">Related links</h5>
-  <div style="
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 4px;
-    padding: 6px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  ">`;
+    <div style="max-width: 800px; margin: 4px auto 10px; font-family: sans-serif;">
+      <h5 style="margin: 2px 0 4px; font-size: 13px; color: #555;">Related links</h5>
+      <div style="
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 4px;
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      ">`;
 
     placeholders.forEach(item => {
       const key = item.split("_START")[0]; // grab the key
@@ -2167,6 +1833,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   let originalText = ""
   let refineMicroCard = null
   let microcardRewrittenEl = document.createElement("div")
+  let _rewriteMapKey = null
   let startRewrite  = () => {}
 
   async function createModePresetCard(originalTextOrSelection, rewriteMapKey) {
@@ -2177,6 +1844,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       console.error("No rewriteMapKey provided to createModePresetCard");
       return;
     }
+    _rewriteMapKey = rewriteMapKey
 
     // Handle selection input or string
     if (originalTextOrSelection && originalTextOrSelection.toString) {
@@ -2212,7 +1880,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     // === Header ===
     const header = document.createElement("div");
     header.className = "tsMicrocardHeader";
-    setOwnText(header, "✨Gideon – Rewrite");
+    setOwnText(header, "✨ToneShift - Refine text");
     microcard.appendChild(header);
 
     // === Hover tracking ===
@@ -2283,7 +1951,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     isShowingPanels = true;
     // === Card positioning ===
-    helperFunction.positionPanel(originalTextOrSelection, host, {width:microcard.offsetWidth, height:microcard.offsetHeight});
+    helperFunctions.positionPanel(originalTextOrSelection, host, {width:microcard.offsetWidth, height:microcard.offsetHeight});
 
     return microcard; // Return the actual inner card for later DOM work
   }
@@ -2314,7 +1982,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     chip.className = "tsChip";
     chip.textContent = "x";
     chip.style.color = "#817a7aff"
-    chip.title = "Hide Adjust Buttons"
+    chip.title = "Hide AdjustButtons"
     chip.onclick = (() => {
       chipContainer.style.display = "none";
       const micro = getActiveMicrocard();
@@ -2330,8 +1998,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     //localStorage.setItem("tsLastMode", mode);
     await chrome.storage.local.set({ tsLastMode: mode });
     const profile = allPresets[mode];
-    applyProfile(profile)
-
+    currentMode = mode;
+    applyProfile(profile);
 
     //const spinner = card.querySelector(".tsSpinner");
     //spinner.style.display = "block";
@@ -2341,6 +2009,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     //microcardRewrittenEl.appendChild(blurBackground);
     //showSpinner(microcardRewrittenEl, "")
     startRewrite()
+    await showSpinnerOnRewrittenText(mode)
     
     /*
     microcardRewrittenEl.text = ""
@@ -2383,6 +2052,28 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
 
   // === Show Spinner (Skip Mode Selection Path) === //
+  async function showSpinnerOnRewrittenText(mode=null){
+    if(!mode) {
+      const data  = await chrome.storage.local.get("tsLastMode")
+      mode = data.tsLastMode
+    }
+    const el = getActiveMicrocard()?.querySelector(".tsRewrittenBlock")
+    showSpinner(el, mode)
+    return
+  }
+
+  async function removeSpinnerFromRewrittenText() {
+    const el = getActiveMicrocard()?.querySelector("#tsSpinnerContainer")
+    if(!el){
+      setTimeout(() => {
+         removeSpinnerFromRewrittenText()
+      }, 80);
+      return
+    }
+    el.remove()
+  }
+
+
   function showSpinner(node, mode) {
     const spinnerContainer = document.createElement("div")
     spinnerContainer.id = "tsSpinnerContainer"
@@ -2397,6 +2088,8 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       Formal: "Formalizing text…",
       Creative: "Rewriting creatively…",
       Concise: "Condensing text…",
+      Shorten: "Making text brief..."
+      
     }[mode] || "Adjusting text…";
 
     const spinnerText = document.createElement("div")
@@ -2434,7 +2127,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     const rewrittenEl = document.createElement("div");
     rewrittenEl.className = "tsRewrittenText";
-    rewrittenEl.textContent = "";
+    const metallicShader = document.createElement("div")
+    metallicShader.className = "metallic-shader"
+    rewrittenEl.appendChild(metallicShader)
     microcardRewrittenEl = rewrittenEl
     
     // Action buttons (copy, adjust tone)
@@ -2536,12 +2231,16 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     btnChange.textContent = "Adjust Tone/Style";
     
     startRewrite = () => {
-      //microcardRewrittenEl.textContent = ""
-    
+      if(!microcardRewrittenEl.querySelector(".metallic-shader")){
+        microcardRewrittenEl.textContent = ""
+        const metallicShader = document.createElement("div")
+        metallicShader.className = "metallic-shader"
+        microcardRewrittenEl.appendChild(metallicShader)
+      }
+      
       performPreview(rewriteMapKey)
       
       const node = card.querySelector(".tsOriginalText")
-      showSpinner(node, mode)
 
       const replaceBtn = card.querySelector("#tsReplaceButton")
       replaceBtn.disabled=true
@@ -2567,7 +2266,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     // Append to card
     card.prepend(btnClose);
 
-    showSpinner(originalEl, mode)
+    showSpinnerOnRewrittenText()
     
     const tsTextFlexContainer = document.createElement("div");
     tsTextFlexContainer.className = "tsTextFlexContainer";
@@ -2617,7 +2316,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   }
   // === Inject Styles === //
   const floatingRefinePopupStyle = document.createElement("style");
-  floatingRefinePopupStyle.textContent = `
+   floatingRefinePopupStyle.textContent = `
     /* === CONTAINER CARD === */
     .tsMicrocard {
       position: absolute;
@@ -2637,6 +2336,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       opacity: 0;
       animation: tsFadeUp 0.25s ease forwards;
       overflow-wrap: break-word;
+      height: 400px; /* ADDED: Fixed height */
+      display: flex; /* ADDED: Flex container */
+      flex-direction: column; /* ADDED: Vertical layout */
     }
 
     @keyframes tsFadeUp {
@@ -2668,6 +2370,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
         color: #1E1E1E;
         background: linear-gradient(90deg, rgba(108,99,255,0.06), transparent);
         border-bottom: 1px solid rgba(108,99,255,0.06);
+        flex-shrink: 0; /* ADDED: Prevent header from shrinking */
     }
     @media (prefers-color-scheme: dark) {
       .tsMicrocardHeader {
@@ -2676,7 +2379,6 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
         border: 1px solid #3A3A3A;
       }
     }
-
 
     /* === CLOSE BUTTON === */
     .tsCloseButton {
@@ -2740,6 +2442,22 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       display: flex;
       flex-direction: column;
       gap: 10px;
+      flex: 1; /* ADDED: Take available space */
+      min-height: 0; /* ADDED: Crucial for flex scrolling */
+      overflow: hidden; /* ADDED: Prevent container scrolling */
+    }
+
+    /* ADDED: Container for left side with proper flex setup */
+    .tsLeftContainer {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ADDED: Text label should not shrink */
+    .tsTextLabel {
+      flex-shrink: 0;
     }
 
     /* ORIGINAL TEXT — contextual reference */
@@ -2751,12 +2469,13 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       font-style: italic;
       color: #555;
       opacity: 0.85;
-      height: 50px;
-      max-height: 6.5em;
-      overflow: hidden;
+      /* REMOVED: height: 50px; */
+      /* REMOVED: max-height: 6.5em; */
+      overflow-y: auto; /* CHANGED: Enable vertical scrolling */
+      overflow-x: hidden; /* ADDED: Disable horizontal scrolling */
       position: relative;
-      transition: max-height 0.3s ease;
-      /* margin-top: 16px; */
+      flex: 1; /* ADDED: Take available space */
+      min-height: 0; /* ADDED: Allow shrinking in flex container */
     }
 
     @media (prefers-color-scheme: dark) {
@@ -2766,22 +2485,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       }
     }
 
+    /* REMOVED: Show more/less functionality since we have scrolling */
     .tsOriginalText::after {
-      content: "Show more";
-      position: absolute;
-      bottom: 0;
-      right: 10px;
-      background: linear-gradient(to left, #F8F9FA 50%, transparent);
-      color: #6C63FF;
-      font-size: 12px;
-      padding-left: 20px;
-      cursor: pointer;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      .tsOriginalText::after {
-        background: linear-gradient(to left, #1E1E1E 50%, transparent);
-      }
+      display: none;
     }
 
     .tsOriginalText.expanded {
@@ -2791,6 +2497,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     .tsOriginalText.expanded::after {
       content: "Show less";
+      max-height: none;
     }
 
     .tsRewrittenBlock {
@@ -2801,29 +2508,92 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       position: relative;
       width: 100%;
       boxsizing: border-box;
+      flex: 1; /* ADDED: Take available space */
+      min-height: 0; /* ADDED: Allow shrinking in flex container */
     }
 
     /* REWRITTEN TEXT — focus content */
     .tsRewrittenText {
-      /* position: relative; */
+      position: relative; /* enable absolute positioning inside */
       background: #E6E0FF;
       border-radius: 8px;
       border-left: 3px solid #6C63FF;
-      padding: 12px 14px;
+      padding: 6px 14px;
       color: #1E1E1E;
       font-weight: 500;
       line-height: 1.55;
       transition: background 0.25s ease, box-shadow 0.25s ease;
-      min-height: 24px; /* optional but recommended */
-      flex:1;
-      width:auto;
+      /* REMOVED: min-height: 50px; */
+      flex: 1; /* ADDED: Take available space */
+      width: auto;
       box-sizing: border-box;
-
+      overflow-y: auto; /* CHANGED: Enable vertical scrolling */
+      overflow-x: hidden; /* ADDED: Disable horizontal scrolling */
+      min-height: 0; /* ADDED: Allow shrinking in flex container */
     }
 
     .tsRewrittenText:hover {
       background: #DDD7FF;
-      box-shadow: 0 0 6px rgba(108,99,255,0.25);
+      box-shadow: 0 0 6px rgba(108, 99, 255, 0.25);
+    }
+
+    /* METALLIC OVERLAY */
+    .tsRewrittenText .metallic-shader {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        120deg,
+        transparent 0%,
+        var(--metallic-color, rgba(255, 255, 255, 0.5)) 50%,
+        transparent 100%
+      );
+      transform: translateX(-100%);
+      animation: metallic-move 1.8s infinite linear;
+      pointer-events: none;
+    }
+
+    @keyframes metallic-move {
+      to {
+        transform: translateX(100%);
+      }
+    }
+
+    /* Ensure both text containers have equal available height */
+    .tsLeftContainer,
+    .tsRewrittenBlock {
+      flex: 1;
+      min-height: 0;
+      padding:4px;
+    }
+
+    /* Make text actions container not take up flex space when hidden */
+    .tsTextActions {
+      flex-shrink: 0;
+      height: 0; /* Collapse when hidden */
+      overflow: hidden;
+    }
+
+    .tsRewrittenBlock:hover .tsTextActions {
+      height: auto; /* Expand when visible */
+      overflow: visible;
+    }
+
+    /* Equalize padding for both text areas */
+    .tsOriginalText,
+    .tsRewrittenText {
+      padding: 10px 12px; /* Make them the same */
+    }
+
+    /* Optional: If you want to keep the original padding but still equalize heights */
+    .tsRewrittenText {
+      padding: 10px 14px; /* Compromise - same vertical padding as original */
+    }
+
+    .tsOriginalText,
+    .tsRewrittenText {
+      word-wrap: break-word; /* Break long words */
+      word-break: break-word; /* Alternative for better support */
+      overflow-wrap: break-word; /* Modern property */
     }
 
     /* Action buttons container */
@@ -2834,9 +2604,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       pointer-events: none;
       transform: translateY(4px);
       transition: opacity 0.25s ease, transform 0.25s ease;
-      justify-content: flex-end; /* add this */
-      width: 100%; /* add this */
-
+      justify-content: flex-end;
+      width: 100%;
+      flex-shrink: 0; /* ADDED: Prevent buttons from shrinking */
     }
 
     /* Show when parent is hovered */
@@ -2927,11 +2697,12 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* === CAPTION === */
     .tsCaption {
-      padding: 14px;
+      padding: 8px;
       font-size: 12px;
       color: #6C757D;
       text-align: right;
-      margin-top: 8px;
+      /*margin-right: 12px;*/
+      flex-shrink: 0; /* ADDED: Prevent caption from shrinking */
     }
 
     @media (prefers-color-scheme: dark) {
@@ -2942,16 +2713,13 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
 
     /* === ACTION BAR === */
     .tsActionBar {
-      display: none;
-      justify-content: space-between;
-      margin-top: 12px;
-      gap: 10px;
-    }
-    .tsActionBar {
       display: flex;
       justify-content: flex-start; /* children start from left */
       gap: 10px;
       transition: all 0.3s ease;  /* optional for smooth container changes */
+      padding-bottom:10px;
+      padding-left: 10px;
+      flex-shrink: 0; /* ADDED: Prevent action bar from shrinking */
     }
     .tsActionBar button:not(#tsReplaceButton) {
       flex: 1 1 auto;          /* grow and shrink as needed */
@@ -2964,7 +2732,6 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       color: white;
       border: none;
       border-radius: 6px;
-      padding: 6px 14px;
       cursor: pointer;
       font-size: 13px;
       font-weight: 500;
@@ -2976,22 +2743,22 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       transform: scale(1.04);
     }
 
-    /* === SPINNER === */
-    #tsSpinnerContainer {
-      position: absolute;
-      /*background: rgba(255, 255, 255, 0.8);*/
-      backdrop-filter: blur(1.5px);
-      width: 100%;
-      height: 100%;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
+   /* === SPINNER === */
+  .tsLeftContainer {
+    position: relative; /* Create positioning context */
+  }
+
+  #tsSpinnerContainer {
+    position: absolute;
+    backdrop-filter: blur(1.5px);
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    z-index: 1;
+  }
 
     .tsSpinner {
       width: 24px;
@@ -3018,20 +2785,28 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     .tsTextFlexContainer {
       padding:10px;
       display: flex;
-      align-items: flex-start;
+      align-items: stretch; /* CHANGED: from flex-start to stretch */
       width: 100%;
       height: 100%;
       margin-top: 16px;
       box-sizing: border-box;
+      flex: 1; /* ADDED: Take available space */
+      overflow: hidden; /* ADDED: Prevent container scrolling */
+      min-height: 0; /* ADDED: Crucial for flex scrolling */
+      gap: 16px; /* ADDED: Use gap instead of margin */
     }
 
     .tsTextFlexContainer > div {
       flex: 1;
       box-sizing: border-box;
+      display: flex; /* ADDED: Flex for inner containers */
+      flex-direction: column; /* ADDED: Vertical layout */
+      min-height: 0; /* ADDED: Allow shrinking */
     }
 
+    /* REMOVED: Margin in favor of gap */
     .tsTextFlexContainer > div:not(:last-child) {
-      margin-right: 16px;
+      margin-right: 0;
     }
 
     /* Responsive behavior: stack children vertically on small screens */
@@ -3076,38 +2851,34 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       transform: none !important;
     }
     /* Retry button - small pill that follows the primary theme */
-  .tsRetryBtn {
-    all: unset;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: #fff;
-    color: #6C63FF;
-    border: 1px solid rgba(108,99,255,0.12);
-    padding: 6px 10px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 13px;
-    margin-left: 8px;
-    box-shadow: 0 6px 16px rgba(108,99,255,0.06);
-    transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-  }
-
-  .tsRetryBtn:hover { 
-    background: #e4dedeff;
-    transform: translateY(-1px);
-    /*box-shadow: 0 10px 20px rgba(108,99,255,0.12);*/
-  }
-  .tsRetryBtn:active { transform: scale(0.98); }
-  .tsRetryBtn:hover:disabled {cursor:wait}
-  .tsRetryBtn:hover:disabled {
-      background: #AAA !important;
-      transform: none !important;
+    .tsRetryBtn {
+      all: unset;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: #fff;
+      color: #6C63FF;
+      border: 1px solid rgba(108,99,255,0.12);
+      padding: 6px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-left: 8px;
+      box-shadow: 0 6px 16px rgba(108,99,255,0.06);
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
     }
 
-
-
+    .tsRetryBtn:hover { 
+      background: #e4dedeff;
+      transform: translateY(-1px);
+    }
+    .tsRetryBtn:active { transform: scale(0.98); }
+    .tsRetryBtn:hover:disabled {cursor:wait}
+    .tsRetryBtn:hover:disabled {
+        background: #AAA !important;
+        transform: none !important;
+      }
   `;
 
   //createModePresetCard()
@@ -3125,18 +2896,18 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
   }
 
   //updateOutputDisplayUI
-  function updateOutputDisplayUI(rewrittenText, success=true, attempt=0){
+  function updateOutputDisplayUI(rewrittenText, data={}, attempt=0){
     // Try to find the microcard in DOM; fall back to the last created reference refineMicroCard
     const microcard = getActiveMicrocard()
     // Debug log to help trace timing issues
-    console.log("Microcard: ", microcard, "(attempt:", attempt, ")")
+    //console.log("Microcard: ", microcard, "(attempt:", attempt, ")")
 
     // If microcard still isn't ready, retry a few times with a short delay
     if(!microcard){
 
       if (attempt < 20) {
         console.log("retrying to get microcard")
-        setTimeout(() => updateOutputDisplayUI(rewrittenText, success, attempt + 1), 80);
+        setTimeout(() => updateOutputDisplayUI(rewrittenText, data, attempt + 1), 80);
         return
       } else {
         console.warn("updateOutputDisplayUI: microcard not available after retries");
@@ -3144,46 +2915,50 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       return
     }
 
-    let outPutContainer = microcard.querySelector(".tsOutputContainer")
-
-    let el = outPutContainer.querySelector(".tsRewrittenText")
+    let el = microcard.querySelector(".tsRewrittenText")
     if(!el) console.log("rewritten el: ", el)
 
-    let orEl =  outPutContainer.querySelector(".tsOriginalText")
-    if(!orEl) console.log("original el: ", orEl)
-
     //if(spinner) spinner.style.display = "none"
+    if(data.useLocalModel && data.status !== "available"){
+      console.log("From local model: ", data.useLocalModel)
+      if (data.status === 'downloadable' || data.status === 'downloading') {
+        helperFunctions.showModelDownloadPrompt(el, startRewrite)
+      }else if(data.status === "error"){
+        el.textContent = "Something went wrong."
+        addRetryAction(el, startRewrite)
+      }else if(data.status === "unavailable"){
+        el.textContent = data.message || `Model ${data.status}`;
+        helperFunctions.showUseCloudeModelOption(el, startRewrite)
+      }
+    }else if(data.useCloudModel && data.staus !== "available"){
+      if(data.status === "error"){
+        el.textContent = "Something went wrong."
+        addRetryAction(el, startRewrite)
+      }
+    }
 
-    if (success){
-      if (el)setOwnText(el, rewrittenText)
+    if (data.status == "available"){
+      if (el)
+        el.textContent = ""
+        el.innerHTML = helperFunctions.simpleMarkdownToHTML(rewrittenText)
+        //setOwnText(el, rewrittenText)
+        
       if(!el) console.log("success but el is: ", el)
-      if (orEl) orEl.querySelector("#tsSpinnerContainer")?.remove()
 
       const actionBar = microcard.querySelector(".tsActionBar")
       actionBar.style.display = "flex"
 
       const replaceBtn = microcard.querySelector("#tsReplaceButton")
       replaceBtn.disabled=false
-      replaceBtn.style.display = "flex"
+      /*replaceBtn.style.display = "flex"*/
 
       microcard.querySelector(".tsRetryBtn")?.remove()
 
       //microcard.querySelector(".tsTextActions").style.display = "flex"
 
-    } else{
-      setTimeout(() => {
-        if (el) {
-          console.log(el, orEl)
-          el.innerHTML = ""
-          setOwnText(el, rewrittenText)
-          addRetryAction(el, startRewrite)
-        }
-
-        if (orEl) orEl.querySelector("#tsSpinnerContainer")?.remove()
-        
-      }, 500);
-      
-    }
+    } 
+    
+    removeSpinnerFromRewrittenText()
     const allChips = microcard.querySelectorAll(".tsChip");
     allChips.forEach((c) => {
       if(c.classList.contains("tsActive")){
@@ -3195,6 +2970,7 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
       c.disabled = false
     });
   }
+
   function addRetryAction(containerEl, callback=nulll) {
     const existing = getActiveMicrocard().querySelector('.tsRetryBtn');
     if (existing) return;
@@ -3202,8 +2978,9 @@ function applyInlinePreview(rewrittenText, rewriteMapKey) {
     retryBtn.className = 'tsRetryBtn';
     retryBtn.textContent = 'Retry';
     retryBtn.style.marginTop = '8px';
-    retryBtn.onclick = (ev) => {
+    retryBtn.onclick = async(ev) => {
       callback()
+      await showSpinnerOnRewrittenText()
       retryBtn.disabled=true
       //retryBtn.remove()
     };

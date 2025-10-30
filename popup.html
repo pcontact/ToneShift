@@ -3,69 +3,255 @@
   <head>
     <title>ToneShift</title>
     <style>
+      /* Reset & base styles */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
       body {
-        font-family: sans-serif;
-        width: 250px;
-        padding: 10px;
+        font-family: 'Inter', 'Helvetica Neue', sans-serif;
+        width: 320px;
+        padding: 20px;
+        background-color: #f5f6fa;
+        color: #333;
       }
-      .input-group {
-        display: flex;
-        align-items: center;
+      h2 {
+        font-weight: 700;
+        font-size: 24px;
+        margin-bottom: 20px;
+        color: #1e1e2f;
       }
-      #apiKeyInput {
-        flex: 1;
-        margin-right: 5px;
+
+      hr {
+        border: none;
+        border-top: 1px solid #e0e0e0;
+        margin: 20px 0;
+      }
+
+      /* Buttons */
+      button {
+        background-color: #4f46e5;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 14px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      button:hover {
+        background-color: #3730a3;
       }
       #toggleKey {
-        cursor: pointer;
-        background: none;
-        border: none;
-        font-size: 14px;
-      }
-      #status {
+        background-color: transparent;
+        color: #4f46e5;
+        border: 1px solid #4f46e5;
+        padding: 6px 10px;
         font-size: 12px;
-        color: green;
+        border-radius: 6px;
       }
-      .tooltip-container .tooltip-text {
+      #toggleKey:hover {
+        background-color: #4f46e5;
+        color: #fff;
+      }
+
+      /* Input styles */
+      input[type="password"], input[type="text"] {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        flex: 1;
+        transition: border-color 0.2s;
+      }
+      input:focus {
+        outline: none;
+        border-color: #4f46e5;
+      }
+
+      /* Input group */
+      .input-group {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      /* General controls panel */
+      #ts-general-controls {
+        border-radius: 12px;
+        background-color: #fff;
+        padding: 20px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+        transition: all 0.3s ease;
+      }
+      #ts-general-controls h4 {
+        margin-bottom: 10px;
+        color: #1e1e2f;
+        font-weight: 600;
+      }
+
+      /* Toggle labels */
+      .toggle-label {
+        display: flex;
+        align-items: center;
+        font-weight: 500;
+        color: #333;
+        margin-bottom: 15px;
+      }
+      .toggle-label input {
+        margin-left: 8px;
+        transform: scale(1.2);
+        cursor: pointer;
+      }
+
+      /* Status message */
+      #status {
+        font-size: 13px;
+        color: green;
+        min-height: 18px;
+      }
+
+      /* Tooltips */
+      .tooltip-container, .setting-with-tooltip {
+        position: relative;
+        display: inline-block;
+        cursor: help;
+      }
+      .tooltip-text, .tooltip {
         visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        position: absolute;
         background: #333;
         color: #fff;
         text-align: center;
-        border-radius: 4px;
-        padding: 6px 8px;
-        position: absolute;
-        z-index: 10;
-        bottom: 36px;
-        left: 50%;
-        transform: translateX(-50%);
+        border-radius: 6px;
+        padding: 6px 10px;
         font-size: 12px;
+        z-index: 10;
         width: max-content;
         max-width: 220px;
-        white-space: normal;
-        box-shadow: 0 6px 16px rgba(0,0,0,0.12);
-        opacity: 0;
-        transition: opacity 0.12s ease;
       }
-      .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
+      .tooltip-container:hover .tooltip-text,
+      .setting-with-tooltip:hover .tooltip {
+        visibility: visible;
+        opacity: 1;
+      }
+      .tooltip::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: #333 transparent transparent transparent;
+      }
+
+      /* Disabled panel style */
+      #ts-general-controls.inactive .ts-settings-body {
+        opacity: 0.4;
+        pointer-events: none;
+        filter: grayscale(80%);
+      }
+      #ts-general-controls.inactive {
+        background-color: #f0f0f0;
+        border-color: #ddd;
+      }
+
+      /* Small refinements */
+      .ts-toggle {
+        display: flex;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      .ts-toggle label {
+        font-size: 13px;
+        margin-left: 6px;
+        cursor: pointer;
+      }
+
+      /* Help Menu Styles */
+      #helpButton {
+        background-color: #f0f0f0;
+        color: #333;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 6px 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      #helpButton:hover {
+        background-color: #e0e0e0;
+      }
+      #helpMenu {
+        margin-top: 10px;
+        padding: 15px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+        font-size: 14px;
+        line-height: 1.5;
+        overflow: hidden;
+        max-height: 0;
+        opacity: 0;
+        transition: max-height 0.3s ease, opacity 0.3s ease;
+      }
+      #helpMenu.show {
+        max-height: 500px; /* enough to show content */
+        opacity: 1;
+      }
+      #helpMenu ul {
+        padding-left: 18px;
+      }
     </style>
   </head>
   <body>
-    <h3>ToneShift</h3>
-    <p>Extension active. Select text on any page and use the sidebar.</p>
+    <h2>ToneShift</h2>
 
-    <div class="tooltip-container" style="display:inline-block; position:relative;">
+    <div class="tooltip-container" style="display:none;">
       <button id="open">Show Settings</button>
       <span class="tooltip-text" role="tooltip">Toggles the ToneShift sidebar/settings panel on the current page.</span>
     </div>
 
-    <hr>
-    <h4>Gemini API Key</h4>
-    <div class="input-group">
-      <input type="password" id="apiKeyInput" placeholder="Enter Gemini API Key" />
-      <button id="toggleKey">show</button>
+    <div class="ts-toggle">
+      <input type="checkbox" id="ts-show-floating" />
+      <label for="ts-show-floating">Refine Text buttons appear when you highlight 5+ words</label>
     </div>
-    <button id="saveKey">Save Key</button>
-    <p id="status"></p>
+
+    <hr>
+
+    <div id="ts-general-controls">
+      <label class="toggle-label">
+        Use Cloud Gemini Model
+        <input type="checkbox" id="ts-gemini-cloud-model-toggle">
+      </label>
+      <div class="ts-settings-body">
+        <h4>Gemini API Key</h4>
+        <div class="input-group">
+          <input type="password" id="apiKeyInput" placeholder="Enter Gemini API Key" />
+          <button id="toggleKey">show</button>
+        </div>
+        <button id="saveKey">Save Key</button>
+        <p id="status"></p>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Animated Help Menu -->
+    <div>
+      <button id="helpButton">Help ?</button>
+      <div id="helpMenu">
+        <p><strong>ToneShift Help</strong></p>
+        <ul>
+          <li><strong>Refine Text:</strong> Shows buttons when you highlight 5 or more words.</li>
+          <li><strong>Use Cloud Gemini Model:</strong> Toggle between local and cloud AI models.</li>
+          <li><strong>API Key:</strong> Enter your Gemini API key and click "Save Key" to store it securely.</li>
+        </ul>
+        <p>You can hide this menu by clicking "Help ?" again.</p>
+      </div>
+    </div>
 
     <script src="popup.js"></script>
   </body>
