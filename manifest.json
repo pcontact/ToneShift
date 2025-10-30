@@ -1,16 +1,21 @@
 {
   "manifest_version": 3,
   "name": "ToneShift",
-  "description": "Adapt web content dynamically: tone, complexity, brevity.",
+  "description": "Refine web content dynamically.",
   "version": "0.1",
-  "permissions": ["scripting", "storage", "activeTab"],
+  "permissions": ["offscreen", "contextMenus", "scripting", "storage", "activeTab"],
+  "minimum_chrome_version": "138",
+  "host_permissions": ["https://generativelanguage.googleapis.com/*"],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background/index.js",
+    "type":"module"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "type":"module",
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -29,7 +34,15 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["pageGemini.js", "pageGeminiLoader.js", "pageHybrid.js"],
+      "resources": [
+        "pageHybrid.js",
+        "utils/extractMainText.js",
+        "utils/getRewriteContext.js",
+        "chatPanel.js",
+        "utils/helpers.js",
+        "utils/universal_gemini_router.js",
+        "local_ai/gemini_local.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ]
