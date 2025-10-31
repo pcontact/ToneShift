@@ -222,7 +222,7 @@ Future versions of ToneShift will include:
 
 👤 Author
 
-Shedrach — Creator of ToneShift
+Pius Shedrach — Creator of ToneShift
 
 
 ---
