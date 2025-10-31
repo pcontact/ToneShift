@@ -223,7 +223,6 @@ Future versions of ToneShift will include:
 👤 Author
 
 Shedrach — Creator of ToneShift
-GitHub Profile
 
 
 ---
