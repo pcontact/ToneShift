@@ -1,198 +1,235 @@
-ToneShift: A Rhetorical Dial for the Web
-
-📖 Overview
-
-ToneShift is a Chrome extension that reimagines how we interact with text online. It allows users to instantly rewrite any selected text on a webpage into different tones—Simple, Casual, Formal, Short, or Creative—without leaving the page.
-
-Think of it as a “tone knob” for the internet: highlight, click, refine, and read in your preferred style.
 
 
----
+🔮 ToneShift
 
-🌟 Inspiration
+Your rhetorical dial for the web.
 
-The project was born from a personal frustration. While reading technical content online, I often found myself copying complex paragraphs into a search engine or an AI model to simplify or rephrase them. This workflow broke concentration and wasted time.
-
-ToneShift was designed to eliminate that friction—to bring the power of AI-assisted comprehension directly into the browsing experience.
+Instantly rewrite, simplify, or restyle any text you find online — directly where you’re reading.
 
 
 ---
 
-💡 What It Does
+🧩 Overview
 
-ToneShift integrates seamlessly into your browsing workflow:
+ToneShift is a Chrome extension that transforms the way people interact with text online.
+By selecting any piece of text on a webpage, users can instantly generate a refined version in a different tone — Simple, Casual, Formal, Short, or Creative — using built-in AI models.
 
-1. Select any text on a webpage.
-
-
-2. Click “Refine this text.”
-
-
-3. Instantly view the rewritten version side-by-side with the original.
-
-
-4. Choose from tone options like Simple, Casual, Formal, Short, or Creative.
-
-
-
-Whether you want to simplify dense research, polish an email draft, or experiment with stylistic variations—ToneShift adapts the web to your reading style.
+Instead of copying and pasting text into external tools, ToneShift brings the power of intelligent rewriting right to the webpage itself.
 
 
 ---
 
-🧠 How It’s Built
+✨ Features
 
-ToneShift is built as a Manifest V3 Chrome Extension, using:
+⚙️ Instant Text Refinement: Right-click or click “Refine this text” to open a live comparison panel.
 
-Vanilla JavaScript for a lightweight front-end.
+🧠 AI-Powered Rewrites: Uses both the Gemini API and Chrome’s Built-in AI Model API for fast, context-aware tone adjustments.
 
-Gemini API and Chrome’s Built-in AI Model API for text refinement.
+🎨 Multiple Tones: Choose from Simple, Casual, Formal, Short, or Creative styles.
 
-Custom prompt engineering for each tone, ensuring consistency and contextual accuracy.
+🔒 Client-Side Processing: Designed for privacy — text stays local.
 
+⚡ Lightweight UI: Built with vanilla JavaScript and Manifest V3 for performance and simplicity.
 
-All text processing happens client-side, ensuring responsiveness and privacy.
 
 
 ---
 
-⚙️ Setup & Testing Instructions
+🏗️ Architecture
 
-Judges can test the full ToneShift experience by following the steps below:
+ToneShift follows a client-side extension architecture:
+
+User → Chrome Extension → Content Script → AI Model API → Refined Output
+
+Key Components:
+
+Content Script: Detects selected text and injects UI elements.
+
+Popup Panel: Displays side-by-side comparison (original vs refined).
+
+AI Module: Manages tone-specific prompts and model requests.
+
+Background Script: Handles persistent settings and permissions.
+
+
+
+---
+
+🛠️ Installation & Testing Instructions (Judges’ Guide)
+
+Follow these steps to set up, run, and evaluate ToneShift:
 
 1. Clone the Repository
 
 git clone https://github.com/pcontact/ToneShift.git
 cd ToneShift
 
-2. Load the Extension into Chrome
+2. Load the Extension in Chrome
 
-1. Open Chrome and navigate to:
-chrome://extensions/
-
-
-2. Toggle Developer Mode on (top-right corner).
+1. Open Chrome and go to chrome://extensions/
 
 
-3. Click Load unpacked.
+2. Enable Developer mode (toggle in the top right)
 
 
-4. Select the cloned ToneShift folder.
+3. Click Load unpacked
 
 
-
-3. Activate ToneShift
-
-Once loaded, the extension icon will appear in Chrome’s toolbar.
-Click it to ensure it’s active.
-
-4. Test the Core Functionality
-
-1. Visit any webpage with text (e.g., a news article or blog).
-
-
-2. Highlight a sentence or paragraph.
-
-
-3. A “Refine this text” button will appear near your selection (or use the right-click context menu).
-
-
-4. Click the button to open the Refine Panel—you’ll see:
-
-Original text (left)
-
-AI-refined version (right)
+4. Select the cloned ToneShift folder
 
 
 
-5. Use the “Adjust Tone” button to toggle between different rewriting modes.
+3. Activate the Extension
+
+Once loaded, you should see the ToneShift icon in your browser toolbar.
+
+4. Test the Application
+
+1. Navigate to any webpage with text (e.g., a news article or technical blog).
+
+
+2. Highlight a paragraph or sentence.
+
+
+3. A “Refine this text” button should appear within one second.
+
+
+4. Click it — a panel will open showing:
+
+Left: Original text
+
+Right: AI-refined version
 
 
 
-5. Access Advanced Settings
+5. Use the Adjust Tone dropdown to change the rewrite style.
 
-Click the ToneShift icon in your toolbar to open the popup:
 
-Enable/disable the floating “Refine this text” button.
+6. Open the extension popup (click the ToneShift icon) to:
 
-Switch between Local AI (Chrome API) and Cloud Model (Gemini API).
+Enable/disable the “Refine this text” button
 
-Access Help & Support links.
+Switch between local or cloud AI model
+
+Access help and settings
+
+
+
+
+No additional server setup or API keys are required — ToneShift runs client-side using available browser APIs.
+
+
+---
+
+⚙️ Configuration
+
+If you wish to use the Gemini API for enhanced rewriting:
+
+1. Open the extension popup (click the ToneShift icon).
+
+
+2. Check the “Use cloud Gemini model” checkbox.
+
+
+
+Otherwise, ToneShift defaults to Chrome’s local AI model for testing.
+
+
+---
+
+🧪 Tests
+
+ToneShift has been manually tested on:
+
+Chrome v138+
+
+
+Functional tests verify:
+
+Button appearance timing
+
+Correct tone application
+
+Error handling when models are unavailable
 
 
 
 ---
 
-🚧 Challenges
-
-The toughest hurdle was defining the initial scope. Without a clear roadmap, early versions fluctuated between too simple and overly ambitious. Through iterative prototyping and ruthless simplification, we refined the product into a smooth, focused experience.
-
-
----
-
-🏆 Accomplishments
-
-Transforming a simple idea—"I wish I could simplify this text without switching tabs"—into a fully functional Chrome extension is the achievement I’m proudest of.
-ToneShift makes AI assistance feel invisible, natural, and useful.
-
-
----
-
-📚 Lessons Learned
-
-This project reinforced several key lessons:
-
-Prompt engineering is both art and science—small word changes yield big tone differences.
-
-Clear scope definition is essential in fast-moving, AI-driven projects.
-
-Chrome’s Manifest V3 offers flexibility but demands attention to permissions and API nuances.
-
-
-
----
-
-🚀 What’s Next for ToneShift
-
-The journey doesn’t stop here. Future updates will include:
-
-Inline Rewriting: Modify text directly within the page.
-
-Full-Page Refinement: Recast entire web pages with a single command.
-
-Multilingual & Custom Tones: Translate and re-tone content in real time.
-
-Conversational Deep Dives: Chat with refined text for richer understanding.
-
-
-
----
-
-🧩 Tech Stack
-
-Frontend: HTML, CSS, Vanilla JavaScript
-
-Backend AI: Gemini API, Chrome AI Model API
+📦 Tech Stack
 
 Platform: Chrome Extension (Manifest V3)
 
+Language: JavaScript (ES6)
+
+AI Models: Gemini API, Chrome Built-in AI
+
+Version Control: Git + GitHub
+
 
 
 ---
 
-🧪 Testing Criteria for Judges
+🤝 Contributing
 
-To verify the project’s functionality:
+Contributions are welcome!
 
-Confirm that the “Refine this text” button appears upon selecting text.
-
-Verify that the AI-refined text appears correctly in the side panel.
-
-Test all tone modes for varied output.
-
-Toggle between local and cloud AI modes in settings.
-
-Validate responsiveness and performance (should feel instant).
+1. Fork the project
 
 
-ToneShift redefines reading. It’s not just about understanding text—it’s about feeling it in the tone that speaks best to you.
+2. Create a new branch
+
+git checkout -b feature/new-idea
+
+
+3. Make your changes
+
+
+4. Commit and push
+
+
+5. Open a Pull Request
+
+
+
+See CONTRIBUTING.md for best practices.
+
+
+---
+
+📜 License
+
+Distributed under the MIT License. See LICENSE for details.
+
+
+---
+
+🧠 Roadmap
+
+Future versions of ToneShift will include:
+
+[ ] Inline Rewriting: Apply tone changes directly on the webpage
+
+[ ] Full-Page Refinement: Rewrite entire articles
+
+[ ] Multi-Language Support: Translate and tone-shift simultaneously
+
+[ ] Conversational Deep Dives: Turn refined text into a chat exploration
+
+
+
+---
+
+👤 Author
+
+Shedrach — Creator of ToneShift
+GitHub Profile
+
+
+---
+
+🧭 Inspiration
+
+ToneShift was born from a simple frustration: switching tabs to ask an AI for help understanding technical text.
+It bridges that gap, giving readers instant, contextual clarity without breaking their reading flow — a small change that transforms how we consume complex information online.
+
