@@ -39,10 +39,10 @@
       color: white;
       border: none;
       border-radius: 4px;
-      padding: 6px 12px;
-      font-size: 14px;
+      padding: 8px 10px;
+      font-size: 16px;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      box-shadow: 0 2px 8px rgba(255, 255, 255, 0.88);
       z-index: 1000000;
       display: block;
       font-family: sans-serif;
@@ -52,7 +52,7 @@
     .ts-floating-preview-btn:hover {
       background: #2a1b4d;
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 12px rgba(255, 255, 255, 0.86);
     }
     .tsExplainBtn {
       /*position: absloute;*/
@@ -555,6 +555,7 @@
   `;
 
   document.body.appendChild(host);
+  host.style.display = "none"
 
   // --- Grab elements from shadow ---
   const qs = (id) => shadow.getElementById(id);
@@ -589,12 +590,32 @@
   // --- State ---
   let lastAIResponse = "";
   const undoStack = [];
+  const rewriteMap = {}
+  let placeholderMap = {};
+  let mapKeyPool = 0
+  let rewriteWithFormat = false
+  let latestModeSelect = ""
+  let isShowingPanels = false
+
+
+  // Inline preview state
+  let isPreviewMode = false;
+  let previewRange = null;
+  let previewOriginalContent = null;
+  let currentPreviewElement = null;
+
+  // Floating button state - FIXED: Use object to store both range and rect
+  let floatingButtonState = {
+    range: null,
+    rect: null
+  };
+
   // --- Profiles ---
   const builtInPresets = {
-    Simplify: { tone: 2, complexity: 2, brevity: 8 },
+    Simple: { tone: 2, complexity: 2, brevity: 8 },
     "Easy Read": { tone: 6, complexity: 2, brevity: 8 },
     "Casual": { tone: 5, complexity: 5, brevity: 5 },
-    "Shorten": { tone: 2, complexity: 2, brevity: 8 },
+    "Short": { tone: 2, complexity: 2, brevity: 8 },
     "Formal": { tone: 8, complexity: 9, brevity: 7 },
     "Creative": { tone: 6, complexity: 5, brevity: 6 },
     
@@ -615,7 +636,7 @@
       chrome.storage.local.get(['showFloatingOnHighlight'], (data) => {
         const enabled = data && data.showFloatingOnHighlight;
         // Default to true when unset
-        if (enabled === undefined || enabled === null || enabled === true && !isShowingPanels) {
+        if (enabled !== undefined && enabled !== null && enabled === true && !isShowingPanels) {
           // Store both range and rect for later use
           try {
             floatingButtonState.range = range.cloneRange();
@@ -1143,9 +1164,15 @@
 
   // ================ Storage Initialization ================== 
    chrome.storage.local.get("tsLastMode", (data) => {
-      if(!data.tsLastMode) chrome.storage.local.set({ tsLastMode:"Simplify"})
+      if(!data.tsLastMode) chrome.storage.local.set({ tsLastMode:"Simple"})
         currentMode = data.tsLastMode
     })
+    chrome.storage.local.get("showFloatingOnHighlight", (data) => {
+      if(data.showFloatingOnHighlight === null || data.showFloatingOnHighlight === undefined)
+        chrome.storage.local.set({ showFloatingOnHighlight:true })
+    })
+
+    
 
     
 
@@ -1252,10 +1279,12 @@
   }
 
   function applyProfile(profile) {
-    toneSlider.value = profile.tone;
-    complexitySlider.value = profile.complexity;
-    brevitySlider.value = profile.brevity;
-    updateSliderValues();
+    try{
+      toneSlider.value = profile.tone;
+      complexitySlider.value = profile.complexity;
+      brevitySlider.value = profile.brevity;
+      updateSliderValues();
+    }catch(e){}
   }
   
   function updateSliderValues() {
@@ -1266,7 +1295,7 @@
 
   // Initialize with default profile
   loadProfiles().then(() => {
-    applyProfile(builtInPresets["Simplify"]);
+    applyProfile(builtInPresets["Simple"]);
   });
 
   // --- Mode Select Event Listener ---
@@ -1860,7 +1889,7 @@
     // === Header ===
     const header = document.createElement("div");
     header.className = "tsMicrocardHeader";
-    setOwnText(header, "✨ToneShift - Refine text");
+    setOwnText(header, "ToneShift - Refine text");
     microcard.appendChild(header);
 
     // === Hover tracking ===
@@ -1897,6 +1926,7 @@
     }
 
     function handleMouseLeave() {
+      return
       if (Math.abs(window.scrollY - anchorY) > 200) {
         window.removeEventListener("scroll", handleScroll);
         window.removeEventListener("selectionchange", handleSelection);
@@ -2063,13 +2093,12 @@
     spinner.style.display = "block"
 
     const getSpinnerText = {
-      Simplify: "Simplifying text…",
+      Simple: "Simplifying text…",
       "Easy Read": "Making it easier to read…",
       Formal: "Formalizing text…",
       Creative: "Rewriting creatively…",
-      Concise: "Condensing text…",
-      Shorten: "Making text brief..."
-      
+      Short: "Condensing text…",
+      Casual: "Rewriting casually..."
     }[mode] || "Adjusting text…";
 
     const spinnerText = document.createElement("div")
@@ -2175,13 +2204,18 @@
     textActionButton.appendChild(adjustToneButton);
 
     const caption = document.createElement("div");
-    caption.className = "tsCaption";
-    const isCloudAI =  await chrome.storage.local.get("useCloudModel");
+    caption.className = "tsCaption"
     caption.textContent = mode
+    caption.textContent = `✨ ${mode} AI refined text`
+
+
+    const aiBadge = document.createElement("div")
+    aiBadge.className = "tsAIBadgeLabel"
+    const isCloudAI =  await chrome.storage.local.get("useCloudModel");
     if(isCloudAI.useCloudModel){
-      caption.textContent = `${mode} version - Cloud AI`
+      aiBadge.textContent = `Using Cloud AI`
     } else{
-      caption.textContent = `${mode} version - Local AI`
+      aiBadge.textContent = `Using Local AI`
     }
 
     const actionBar = document.createElement("div");
@@ -2266,14 +2300,14 @@
     const rightLabel = document.createElement("div");
     rightLabel.className = "tsTextLabel";
     rightLabel.textContent = "🧠 AI Rewrite" //+ (mode || "");
-    rewrittenBlock.appendChild(rightLabel);
+    rewrittenBlock.appendChild(caption);
     rewrittenBlock.appendChild(rewrittenEl);
     rewrittenBlock.appendChild(textActionButton);
 
     tsTextFlexContainer.appendChild(leftContainer);
     tsTextFlexContainer.appendChild(rewrittenBlock);
 
-    outputContainer.append(tsTextFlexContainer, caption, actionBar);
+    outputContainer.append(tsTextFlexContainer, aiBadge, actionBar);
     card.appendChild(outputContainer);
   }
 
@@ -2305,7 +2339,7 @@
       border: 1px solid #D0D0D0;
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-      width: 600px;
+      width: 700px;
       max-width: calc(100vw - 32px); /* prevent overflowing horizontally */
       z-index: 1000;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -2676,19 +2710,28 @@
     }
 
     /* === CAPTION === */
-    .tsCaption {
+    .tsCaption, tsTextLabel {
       padding: 8px;
-      font-size: 12px;
-      color: #6C757D;
-      text-align: right;
+      font-size: 14px;
+      color: #d4dbe2ff;
+      text-align: left;
+      font-weight:bold;
       /*margin-right: 12px;*/
       flex-shrink: 0; /* ADDED: Prevent caption from shrinking */
     }
 
     @media (prefers-color-scheme: dark) {
       .tsCaption {
-        color: #A0A0A0;
+        color: #ffffffff;
       }
+    }
+
+    .tsAIBadgeLabel {
+      padding-right: 16px;
+      font-size: 14px;
+      text-align: right;
+      color : #aeb9bdff;
+      flex-shrink: 0; /* ADDED: Prevent caption from shrinking */
     }
 
     /* === ACTION BAR === */
@@ -2943,9 +2986,7 @@
     allChips.forEach((c) => {
       if(c.classList.contains("tsActive")){
         const modeCaption = microcard.querySelector(".tsCaption")
-        modeCaption.textContent = c.textContent
-        ? `${c.textContent} version — Local AI`
-        : "AI generated (local).";
+        modeCaption.textContent = `✨ ${c.textContent} AI refined text`
       }
       c.disabled = false
     });

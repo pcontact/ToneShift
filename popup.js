@@ -110,7 +110,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Load saved preference; default to true
     chrome.storage.local.get('showFloatingOnHighlight', (data) => {
       if (data.showFloatingOnHighlight === undefined || data.showFloatingOnHighlight === null) {
-        showFloatingCheckbox.checked = false;
+        chrome.storage.local.set({ showFloatingOnHighlight:true })
+        showFloatingCheckbox.checked = true;
       } else {
         showFloatingCheckbox.checked = data.showFloatingOnHighlight;
       }

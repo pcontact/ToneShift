@@ -266,10 +266,12 @@ export async function showModelDownloadPrompt(parentNode, callback) {
         // initiate download & monitor
         const session = await LM.create({
           monitor(m) {
+            button.style.display="none";
             m.addEventListener('downloadprogress', (e) => {
               const pct = Math.round(e.loaded * 100);
               //statusLabel.textContent = `Downloading… ${pct}%`;
               //setOwnText(message, `Downloading… ${pct}%`)
+
               setOwnText(message, `Downloading built-in AI model. Please wait… ${pct}%`)
               
             });
@@ -354,7 +356,7 @@ export function showUseCloudeModelOption(parentNode, callback){
     setTimeout(() => {
       button.removeEventListener("click", openPopup)
       button.textContent = "Retry"
-      setOwnText(parentNode, "Something went wrong. Try again.")
+      setOwnText(parentNode, "Ater setting up cloud model, try again.")
       if(callback)button.addEventListener("click", callback)
     }, 1500);
        
