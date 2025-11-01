@@ -1132,12 +1132,25 @@
     }
   });
 
+  const SAFE_INPUT_LIMIT = 300
+  function estimateToken(e){
+    return(Math.ceil(e/4))
+  }
   async function initiateRewrite(){
     // Create a selection from the stored range
     //expandSelectionToWholeWordsAcrossNodes()
     const parentContainer = getSelectionParentContainer()
     //expandSelectionToParagraph() // expand the selection to a whole paragraph
     const selection = window.getSelection();
+    if (!selection) return
+
+    const selectedText = selection.toString().trim()
+    if(estimateToken(selectedText.length) > SAFE_INPUT_LIMIT){
+      alert("Cannot refine the selected text.\nSelected text is too long.\nFor best experience keep selected texts short.")
+      hideFloatingPreviewButton()
+      return
+    }
+    console.log(estimateToken(selectedText.length))
     //selection.removeAllRanges();
     //selection.addRange(floatingButtonState.range.cloneRange());
     const range = selection.getRangeAt(0).cloneRange();
